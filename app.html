@@ -8922,10 +8922,20 @@ function exportSpecPDF() {
     <style>
       @page { size: A4; margin: 16mm 14mm; }
       * { box-sizing: border-box; }
-      body { font-family: 'Inter', Arial, sans-serif; font-size: 12px; color: #111; margin: 0; }
+      body {
+        font-family: 'Inter', Arial, sans-serif;
+        font-size: 12px; color: #111; margin: 0;
+        /* В браузере — имитируем A4 (794px = 210mm при 96dpi) */
+        max-width: 794px;
+        margin: 0 auto;
+        padding: 20px 24px;
+      }
+      @media print {
+        body { max-width: 100%; padding: 0; margin: 0; }
+        .no-print { display: none !important; }
+      }
       .no-print { background: #f0f4f8; padding: 10px 14px; margin-bottom: 16px; border-radius: 6px; }
       .no-print button { background: #1F7A63; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-      @media print { .no-print { display: none !important; } }
       /* Preview styles */
       .preview-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1.5px solid #111; }
       .preview-company { font-size: 18px; font-weight: 700; color: #111; letter-spacing: -0.3px; }
