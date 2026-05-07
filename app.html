@@ -8213,8 +8213,18 @@ const DOC_BRAND_BLOCK = `
       <span style="color:#1F7A63">S</span><span style="color:#D64545">C</span>
     </div>
     <div style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#111;line-height:1.4">Supply Chain</div>
-    <div style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:8.5px;letter-spacing:0.15em;color:rgba(0,0,0,0.4)">ENDV · PBS</div>
   </div>`;
+
+// Dynamic: shows only active company code (not hardcoded ENDV · PBS)
+function getDocBrandBlock() {
+  return `<div style="text-align:right;flex-shrink:0">
+    <div style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:20px;font-weight:800;letter-spacing:-0.3px;line-height:1">
+      <span style="color:#1F7A63">S</span><span style="color:#D64545">C</span>
+    </div>
+    <div style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#111;line-height:1.4">Supply Chain</div>
+    <div style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:8.5px;letter-spacing:0.15em;color:rgba(0,0,0,0.4)">${activeCompany || 'ENDV'}</div>
+  </div>`;
+}
 
 // ── NAVIGATION ──
 function showSection(name) {
@@ -8917,20 +8927,25 @@ function exportSpecPDF() {
     return;
   }
   const w = window.open('', '_blank');
+  const specTitle = `Спецификация №${document.getElementById('s-spec-num')?.value||'?'} · ${document.getElementById('s-contract-num')?.value||''}`;
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>${specTitle}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-      @page { size: A4; margin: 16mm 14mm; }
+      /* Убираем колонтитулы браузера: нулевые поля @page,
+         затем doc-wrapper добавляет внутренние поля */
+      @page { size: A4; margin: 0; }
       * { box-sizing: border-box; }
-      body { font-family: 'Inter', Arial, sans-serif; font-size: 12px; color: #111; margin: 0; padding: 0; background: #f5f5f5; }
-      .no-print { background: #f0f4f8; padding: 10px 14px; margin-bottom: 0; }
-      .no-print button { background: #1F7A63; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-      /* Обёртка — A4-ширина, центрирована */
-      .doc-wrapper { width: 710px; margin: 0 auto; padding: 28px 0; background: white; min-height: 100vh; }
+      body { font-family: 'Inter', Arial, sans-serif; font-size: 12px; color: #111; margin: 0; padding: 0; background: #f0f4f8; }
+      .no-print { background: #1F7A63; color: white; padding: 10px 20px; text-align: center; }
+      .no-print button { background: white; color: #1F7A63; border: none; padding: 7px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; margin-right: 12px; }
+      .no-print span { font-size: 12px; opacity: 0.9; }
+      /* A4-обёртка: ширина + внутренние поля вместо @page margin */
+      .doc-wrapper { width: 794px; margin: 0 auto; padding: 16mm 14mm; background: white; min-height: 297mm; }
       @media print {
         body { background: white; }
         .no-print { display: none !important; }
-        .doc-wrapper { width: 100%; margin: 0; padding: 0; }
+        .doc-wrapper { width: 100%; margin: 0; padding: 16mm 14mm; }
       }
       /* Preview styles */
       .preview-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1.5px solid #111; }
@@ -8952,9 +8967,9 @@ function exportSpecPDF() {
       .copy-btn { display: none !important; }
     </style>
   </head><body>
-    <div class="no-print" style="text-align:center;padding:12px;">
+    <div class="no-print">
       <button onclick="window.print()">🖨 Печать / Сохранить PDF</button>
-      &nbsp;&nbsp;<span style="font-size:12px;color:#666">В диалоге печати выберите «Сохранить как PDF»</span>
+      <span>В диалоге печати: выберите «Сохранить как PDF» · снимите галку «Верхние и нижние колонтитулы»</span>
     </div>
     <div class="doc-wrapper">
       ${area.innerHTML}
@@ -9200,7 +9215,7 @@ function generateSpec() {
           <div style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:10px;color:rgba(0,0,0,0.45);margin-top:2px">${COMPANIES[activeCompany]?.shortEn || ''}</div>
         </div>
       </div>
-      ${DOC_BRAND_BLOCK}
+      ${getDocBrandBlock()}
     </div>
     <!-- Информация о документе -->
     <div class="preview-header" style="border-bottom:none;margin-bottom:16px;padding-bottom:0">
