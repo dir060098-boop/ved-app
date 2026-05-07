@@ -5104,7 +5104,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center">
           <button class="gen-btn" onclick="spSaveAndGenerate()" style="margin:0">💾 Сохранить и сформировать</button>
           <button class="gen-btn secondary" onclick="spSaveOnly()" style="margin:0">💾 Сохранить в реестре</button>
-          <button class="gen-btn secondary" onclick="window.print()" style="margin:0">🖨 Печать</button>
+          <button class="gen-btn secondary" onclick="exportSpecPDF()" style="margin:0">🖨 Печать / PDF</button>
         </div>
 
         <div id="spec-preview-area" class="preview-area"></div>
@@ -8909,6 +8909,53 @@ function ctRenderList() {
     <div style="margin-top:10px;font-size:11px;color:var(--text3)">Всего договоров: ${sorted.length}</div>`;
 }
 
+// ── SPEC PRINT / PDF ──
+function exportSpecPDF() {
+  const area = document.getElementById('spec-preview-area');
+  if (!area || !area.innerHTML.trim()) {
+    alert('Сначала нажмите «Сохранить и сформировать» чтобы создать превью спецификации');
+    return;
+  }
+  const w = window.open('', '_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+      @page { size: A4; margin: 16mm 14mm; }
+      * { box-sizing: border-box; }
+      body { font-family: 'Inter', Arial, sans-serif; font-size: 12px; color: #111; margin: 0; }
+      .no-print { background: #f0f4f8; padding: 10px 14px; margin-bottom: 16px; border-radius: 6px; }
+      .no-print button { background: #1F7A63; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+      @media print { .no-print { display: none !important; } }
+      /* Preview styles */
+      .preview-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1.5px solid #111; }
+      .preview-company { font-size: 18px; font-weight: 700; color: #111; letter-spacing: -0.3px; }
+      .preview-doc-type { font-size: 9px; text-transform: uppercase; letter-spacing: 2px; color: rgba(0,0,0,0.45); margin-top: 4px; }
+      .preview-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+      .preview-table th { background: #F8F9FB; color: #555; padding: 8px 12px; text-align: left; font-family: 'JetBrains Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
+      .preview-table td { padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 12px; color: #444; }
+      .preview-table .num { font-family: 'JetBrains Mono', monospace; text-align: right; color: #1F7A63; }
+      .preview-total-row { display: flex; justify-content: flex-end; padding: 12px 0; border-top: 2px solid #111; font-size: 18px; gap: 20px; color: #111; font-weight: 700; letter-spacing: -0.3px; }
+      .preview-clause { margin-bottom: 12px; }
+      .preview-clause-title { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: rgba(0,0,0,0.4); margin-bottom: 4px; }
+      .doc-brand-block { text-align: right; flex-shrink: 0; }
+      .doc-brand-sc { font-size: 20px; font-weight: 800; letter-spacing: -0.3px; line-height: 1; }
+      .doc-brand-sc .sc-s { color: #1F7A63; }
+      .doc-brand-sc .sc-c { color: #D64545; }
+      .doc-brand-name { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; color: #111; text-transform: uppercase; line-height: 1.3; }
+      .doc-brand-sub { font-size: 8.5px; letter-spacing: 0.15em; color: rgba(0,0,0,0.4); }
+      .copy-btn { display: none !important; }
+    </style>
+  </head><body>
+    <div class="no-print">
+      <button onclick="window.print()">🖨 Печать / Сохранить PDF</button>
+      &nbsp; В диалоге печати выберите «Сохранить как PDF»
+    </div>
+    ${area.innerHTML}
+  </body></html>`);
+  w.document.close();
+  setTimeout(() => w.print(), 900);
+}
+
 // ══════════════════════════════════════════════════════════════
 // SPEC REGISTRY — реестр спецификаций
 // ══════════════════════════════════════════════════════════════
@@ -9135,7 +9182,7 @@ function generateSpec() {
   const area = document.getElementById('spec-preview-area');
   area.className = 'preview-area visible';
   area.innerHTML = `
-    <button class="copy-btn" onclick="window.print()">🖨 Печать</button>
+    <button class="copy-btn" onclick="exportSpecPDF()">🖨 Печать / PDF</button>
     <!-- Шапка: логотип слева, SC Brand справа -->
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:12px;border-bottom:1.5px solid #111">
       <div style="display:flex;align-items:center;gap:12px">
