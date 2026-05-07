@@ -1031,11 +1031,23 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
 
   @media print {
-    header { background: white !important; border-bottom: 2px solid var(--text) !important; -webkit-print-color-adjust: exact; }
-    nav { display: none; }
-    .gen-btn, .copy-btn { display: none !important; }
+    /* Скрываем весь интерфейс */
+    header, nav, #sp-list-view, #ct-list-view { display: none !important; }
+    .gen-btn, .copy-btn, .add-row-btn, .si-load-btn, .del-btn { display: none !important; }
     main { padding: 0; }
-    #preview-area, .preview-area { box-shadow: none; display: block !important; }
+    /* Скрываем форму — показываем только превью */
+    #sp-form-view > *:not(#spec-preview-area),
+    #ct-form-view > *:not(#preview-area) { display: none !important; }
+    /* Убираем тени с превью, оставляем только контент документа */
+    #preview-area, .preview-area, #spec-preview-area {
+      box-shadow: none !important;
+      border: none !important;
+      display: block !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    /* Скрываем copy-btn внутри превью (Печать/PDF кнопки самого превью) */
+    .preview-area .copy-btn { display: none !important; }
   }
 
   /* ── AUTH SCREEN ── */
@@ -14357,7 +14369,9 @@ function spApplyItemsOnly() {
 
 function _spApplyItems(d) {
   if (!d.items || !d.items.length) return;
-  specRows = d.items.map(it => ({
+  // specRows is const — mutate in place (splice + push), не переприсваивать
+  specRows.splice(0, specRows.length);
+  d.items.forEach(it => specRows.push({
     desc:   it.desc   || '',
     descRu: it.descRu || '',
     unit:   it.unit   || 'Pcs',
