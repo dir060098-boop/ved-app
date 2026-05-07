@@ -4679,174 +4679,199 @@
       <div class="section-title">Реестр договоров</div>
       <div class="section-sub">Sales Contract · двуязычная форма · список по поставщикам</div>
 
-      <!-- PDF Import -->
-      <div class="inv-import-box" id="ct-import-box" ondragover="event.preventDefault()" ondrop="ctHandleDrop(event)">
-        <div style="font-size:28px;margin-bottom:8px">📄</div>
-        <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:4px">Загрузить подписанный договор PDF</div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Перетащите файл или нажмите — Claude извлечёт реквизиты и заполнит поля</div>
-        <label style="cursor:pointer">
-          <input type="file" accept=".pdf" style="display:none" onchange="ctImportPdf(this.files[0])">
-          <span class="gen-btn" style="margin:0;padding:7px 18px;font-size:12px;display:inline-block">Выбрать PDF</span>
-        </label>
-      </div>
-
-      <!-- Text paste fallback -->
-      <div style="margin-top:10px;text-align:center">
-        <button onclick="toggleCtPasteMode()" style="background:none;border:none;font-size:11px;color:var(--text3);cursor:pointer;text-decoration:underline">или вставить текст договора вручную</button>
-      </div>
-      <div id="ct-paste-box" style="display:none;margin-top:12px">
-        <textarea id="ct-paste-text" rows="6" style="width:100%;font-size:12px;font-family:'JetBrains Mono',monospace;border:1px solid var(--border);border-radius:var(--radius);padding:10px;resize:vertical;background:var(--surface2);color:var(--text)" placeholder="Вставьте текст договора сюда (Ctrl+A, Ctrl+C из PDF или Word)..."></textarea>
-        <button class="gen-btn" onclick="ctImportFromText()" style="margin-top:8px;padding:7px 18px;font-size:12px">Извлечь реквизиты из текста</button>
-      </div>
-
-      <div id="ct-import-status" style="margin-bottom:12px;font-size:12px;display:none"></div>
-      <div id="ct-import-preview" style="display:none;background:var(--surface2);border:1px solid var(--co-accent-border);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px">
-        <div style="font-size:12px;font-weight:600;color:var(--co-accent);margin-bottom:10px">📋 Извлечено из PDF — проверьте и примените</div>
-        <div id="ct-preview-table"></div>
-        <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="gen-btn" onclick="ctApplyExtracted()" style="margin:0;padding:7px 18px;font-size:12px">✅ Применить</button>
-          <button class="gen-btn secondary" onclick="document.getElementById('ct-import-preview').style.display='none'" style="margin:0;padding:7px 18px;font-size:12px">Отмена</button>
+      <!-- ═══════════════════════════════════════════════════════
+           LIST VIEW — реестр всех договоров
+           ═══════════════════════════════════════════════════════ -->
+      <div id="ct-list-view">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <input id="ct-search" type="text" placeholder="🔍 Поиск по поставщику или номеру..."
+                 style="width:280px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface2);color:var(--text);font-size:13px"
+                 oninput="ctRenderList()">
+          <button class="gen-btn" onclick="ctShowForm(null)" style="margin:0">+ Новый договор</button>
         </div>
+        <div id="ct-list-body"></div>
       </div>
 
-      <div id="contract-company-tabs"></div>
+      <!-- ═══════════════════════════════════════════════════════
+           FORM VIEW — создание / редактирование договора
+           ═══════════════════════════════════════════════════════ -->
+      <div id="ct-form-view" style="display:none">
+        <input type="hidden" id="ct-editing-id">
 
-      <div class="block-title">Реквизиты договора</div>
-      <div class="form-grid">
-        <div class="field">
-          <label>Номер договора</label>
-          <input id="c-num" type="text" value="ENDV2026-03/4" placeholder="ENDV2026-XX/X">
+        <!-- Навигация назад -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+          <button onclick="ctShowList()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 14px;cursor:pointer;color:var(--text2);font-size:13px">← Реестр</button>
+          <span id="ct-form-title" style="font-size:16px;font-weight:700;color:var(--text)">Новый договор</span>
         </div>
-        <div class="field">
-          <label style="display:flex;align-items:center;gap:6px">
-            Номер поставки
-            <span style="font-size:9px;background:var(--co-accent-light);color:var(--co-accent);padding:1px 7px;border-radius:10px;font-family:'JetBrains Mono',monospace">AUTO</span>
+
+        <!-- PDF Import -->
+        <div class="inv-import-box" id="ct-import-box" ondragover="event.preventDefault()" ondrop="ctHandleDrop(event)">
+          <div style="font-size:28px;margin-bottom:8px">📄</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:4px">Загрузить подписанный договор PDF</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Перетащите файл или нажмите — извлечёт реквизиты и заполнит поля</div>
+          <label style="cursor:pointer">
+            <input type="file" accept=".pdf" style="display:none" onchange="ctImportPdf(this.files[0])">
+            <span class="gen-btn" style="margin:0;padding:7px 18px;font-size:12px;display:inline-block">Выбрать PDF</span>
           </label>
-          <div style="display:flex;gap:6px;align-items:center">
-            <input id="c-delivery-num" readonly style="flex:1;background:var(--surface2);font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--co-accent)" placeholder="Сформируется при сохранении">
-            <button onclick="regenerateDeliveryNum()" title="Пересчитать номер" style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;cursor:pointer;color:var(--text3);font-size:12px" onmouseover="this.style.borderColor='var(--co-accent)'" onmouseout="this.style.borderColor='var(--border)'">↻</button>
+        </div>
+
+        <!-- Text paste fallback -->
+        <div style="margin-top:10px;text-align:center">
+          <button onclick="toggleCtPasteMode()" style="background:none;border:none;font-size:11px;color:var(--text3);cursor:pointer;text-decoration:underline">или вставить текст договора вручную</button>
+        </div>
+        <div id="ct-paste-box" style="display:none;margin-top:12px">
+          <textarea id="ct-paste-text" rows="6" style="width:100%;font-size:12px;font-family:'JetBrains Mono',monospace;border:1px solid var(--border);border-radius:var(--radius);padding:10px;resize:vertical;background:var(--surface2);color:var(--text)" placeholder="Вставьте текст договора сюда (Ctrl+A, Ctrl+C из PDF или Word)..."></textarea>
+          <button class="gen-btn" onclick="ctImportFromText()" style="margin-top:8px;padding:7px 18px;font-size:12px">Извлечь реквизиты из текста</button>
+        </div>
+
+        <div id="ct-import-status" style="margin-bottom:12px;font-size:12px;display:none"></div>
+        <div id="ct-import-preview" style="display:none;background:var(--surface2);border:1px solid var(--co-accent-border);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px">
+          <div style="font-size:12px;font-weight:600;color:var(--co-accent);margin-bottom:10px">📋 Извлечено из PDF — проверьте и примените</div>
+          <div id="ct-preview-table"></div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="gen-btn" onclick="ctApplyExtracted()" style="margin:0;padding:7px 18px;font-size:12px">✅ Применить</button>
+            <button class="gen-btn secondary" onclick="document.getElementById('ct-import-preview').style.display='none'" style="margin:0;padding:7px 18px;font-size:12px">Отмена</button>
           </div>
-          <div style="font-size:10px;color:var(--text3);margin-top:3px;font-family:'JetBrains Mono',monospace" id="c-delivery-hint"></div>
         </div>
-        <div class="field">
-          <label>Дата договора</label>
-          <input id="c-date" type="date" value="2026-02-10">
-        </div>
-      </div>
 
-      <div class="block-title">Продавец (Seller)</div>
-      <div class="form-grid">
-        <div class="field span2">
-          <label>Наименование компании</label>
-          <input id="c-seller-name" value="THERMO CABLES LIMITED">
-        </div>
-        <div class="field span2">
-          <label>Адрес</label>
-          <input id="c-seller-addr" value="28, Nagarjuna Hills, Punjagutta, Hyderabad-500082, India">
-        </div>
-        <div class="field">
-          <label>Представитель (ФИО)</label>
-          <input id="c-seller-rep" value="C.M. Patel">
-        </div>
-        <div class="field">
-          <label>Должность</label>
-          <input id="c-seller-pos" value="Authorised Signatory">
-        </div>
-        <div class="field">
-          <label>Банк</label>
-          <input id="c-seller-bank" value="HDFC Bank Ltd">
-        </div>
-        <div class="field">
-          <label>SWIFT</label>
-          <input id="c-seller-swift" value="HDFCINBB">
-        </div>
-        <div class="field">
-          <label>Счёт (A/C No.)</label>
-          <input id="c-seller-acc" value="50200049492660">
-        </div>
-        <div class="field">
-          <label>IFSC</label>
-          <input id="c-seller-ifsc" value="HDFC0001041">
-        </div>
-      </div>
+        <div id="contract-company-tabs"></div>
 
-      <div class="block-title">Покупатель (Buyer)</div>
-      <div class="form-grid">
-        <div class="field span2">
-          <label>Наименование компании</label>
-          <input id="c-buyer-name" value="ООО «Ендейвер» / Endeavour LLC">
+        <div class="block-title">Реквизиты договора</div>
+        <div class="form-grid">
+          <div class="field">
+            <label>Номер договора</label>
+            <input id="c-num" type="text" placeholder="ENDV2026-XX/X">
+          </div>
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:6px">
+              Номер поставки
+              <span style="font-size:9px;background:var(--co-accent-light);color:var(--co-accent);padding:1px 7px;border-radius:10px;font-family:'JetBrains Mono',monospace">AUTO</span>
+            </label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input id="c-delivery-num" readonly style="flex:1;background:var(--surface2);font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--co-accent)" placeholder="Сформируется при сохранении">
+              <button onclick="regenerateDeliveryNum()" title="Пересчитать номер" style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;cursor:pointer;color:var(--text3);font-size:12px" onmouseover="this.style.borderColor='var(--co-accent)'" onmouseout="this.style.borderColor='var(--border)'">↻</button>
+            </div>
+            <div style="font-size:10px;color:var(--text3);margin-top:3px;font-family:'JetBrains Mono',monospace" id="c-delivery-hint"></div>
+          </div>
+          <div class="field">
+            <label>Дата договора</label>
+            <input id="c-date" type="date">
+          </div>
         </div>
-        <div class="field span2">
-          <label>Адрес</label>
-          <input id="c-buyer-addr" value="117335, г. Москва, ул. Вавилова, д.79, корп.1, офис 6-3, этаж 2 / 79/1 Vavilova Street, Office 6-3, 2nd floor, 117335 Moscow, Russia">
-        </div>
-        <div class="field">
-          <label>Представитель (ФИО)</label>
-          <input id="c-buyer-rep" value="Кирилюк Сергей Георгиевич / Sergey G. Kiriluk">
-        </div>
-        <div class="field">
-          <label>Должность</label>
-          <input id="c-buyer-pos" value="Генеральный директор / General Director">
-        </div>
-        <div class="field">
-          <label>ИНН</label>
-          <input id="c-buyer-inn" value="">
-        </div>
-        <div class="field">
-          <label>ОГРН</label>
-          <input id="c-buyer-ogrn" value="">
-        </div>
-        <div class="field">
-          <label>Банк покупателя</label>
-          <input id="c-buyer-bank" value="АО «Альфа-Банк», г. Москва / JSC Alfa-Bank, Moscow">
-        </div>
-        <div class="field">
-          <label>БИК</label>
-          <input id="c-buyer-bik" value="044525593">
-        </div>
-        <div class="field span2">
-          <label>Расчётный счёт покупателя (RUB / USD)</label>
-          <input id="c-buyer-acc" value="RUR: 40702810000230000754 / USD: 40702840702300000217">
-        </div>
-        <div class="field">
-          <label>SWIFT покупателя</label>
-          <input id="c-buyer-swift" value="ALFARUMM">
-        </div>
-        <div class="field">
-          <label>Кор. счёт</label>
-          <input id="c-buyer-corr" value="30101810200000000593">
-        </div>
-        <div class="field span2">
-          <label>Адрес банка покупателя</label>
-          <input id="c-buyer-bankaddr" value="119261, г. Москва, Ленинский проспект, д.78 / Leninsky Prospect 78, Moscow">
-        </div>
-      </div>
 
-      <div class="block-title">Условия</div>
-      <div class="form-grid">
-        <div class="field">
-          <label>Условия поставки (Incoterms)</label>
-          <select id="c-inco">
+        <div class="block-title">Продавец (Seller)</div>
+        <div class="form-grid">
+          <div class="field span2">
+            <label>Наименование компании</label>
+            <input id="c-seller-name" placeholder="Название поставщика">
+          </div>
+          <div class="field span2">
+            <label>Адрес</label>
+            <input id="c-seller-addr" placeholder="Юридический адрес продавца">
+          </div>
+          <div class="field">
+            <label>Представитель (ФИО)</label>
+            <input id="c-seller-rep" placeholder="ФИО">
+          </div>
+          <div class="field">
+            <label>Должность</label>
+            <input id="c-seller-pos" placeholder="Должность">
+          </div>
+          <div class="field">
+            <label>Банк</label>
+            <input id="c-seller-bank" placeholder="Наименование банка">
+          </div>
+          <div class="field">
+            <label>SWIFT</label>
+            <input id="c-seller-swift" placeholder="SWIFT-код">
+          </div>
+          <div class="field">
+            <label>Счёт (A/C No.)</label>
+            <input id="c-seller-acc" placeholder="Номер счёта">
+          </div>
+          <div class="field">
+            <label>IFSC</label>
+            <input id="c-seller-ifsc" placeholder="IFSC-код (для Индии)">
+          </div>
+        </div>
+
+        <div class="block-title">Покупатель (Buyer)</div>
+        <div class="form-grid">
+          <div class="field span2">
+            <label>Наименование компании</label>
+            <input id="c-buyer-name" value="ООО «Ендейвер» / Endeavour LLC">
+          </div>
+          <div class="field span2">
+            <label>Адрес</label>
+            <input id="c-buyer-addr" value="117335, г. Москва, ул. Вавилова, д.79, корп.1, офис 6-3, этаж 2 / 79/1 Vavilova Street, Office 6-3, 2nd floor, 117335 Moscow, Russia">
+          </div>
+          <div class="field">
+            <label>Представитель (ФИО)</label>
+            <input id="c-buyer-rep" value="Кирилюк Сергей Георгиевич / Sergey G. Kiriluk">
+          </div>
+          <div class="field">
+            <label>Должность</label>
+            <input id="c-buyer-pos" value="Генеральный директор / General Director">
+          </div>
+          <div class="field">
+            <label>ИНН</label>
+            <input id="c-buyer-inn" value="">
+          </div>
+          <div class="field">
+            <label>ОГРН</label>
+            <input id="c-buyer-ogrn" value="">
+          </div>
+          <div class="field">
+            <label>Банк покупателя</label>
+            <input id="c-buyer-bank" value="АО «Альфа-Банк», г. Москва / JSC Alfa-Bank, Moscow">
+          </div>
+          <div class="field">
+            <label>БИК</label>
+            <input id="c-buyer-bik" value="044525593">
+          </div>
+          <div class="field span2">
+            <label>Расчётный счёт покупателя (RUB / USD)</label>
+            <input id="c-buyer-acc" value="RUR: 40702810000230000754 / USD: 40702840702300000217">
+          </div>
+          <div class="field">
+            <label>SWIFT покупателя</label>
+            <input id="c-buyer-swift" value="ALFARUMM">
+          </div>
+          <div class="field">
+            <label>Кор. счёт</label>
+            <input id="c-buyer-corr" value="30101810200000000593">
+          </div>
+          <div class="field span2">
+            <label>Адрес банка покупателя</label>
+            <input id="c-buyer-bankaddr" value="119261, г. Москва, Ленинский проспект, д.78 / Leninsky Prospect 78, Moscow">
+          </div>
+        </div>
+
+        <div class="block-title">Условия</div>
+        <div class="form-grid">
+          <div class="field">
+            <label>Условия поставки (Incoterms)</label>
+            <select id="c-inco">
               <option value="EXW">EXW — Ex Works</option>
               <option value="FCA">FCA — Free Carrier</option>
               <option value="FOB">FOB — Free on Board</option>
               <option value="FOT">FOT — Free on Truck</option>
               <option value="DAP">DAP — Delivered at Place</option>
             </select>
-        </div>
-        <div class="field">
-          <label>Условия оплаты</label>
-          <select id="c-payment">
-            <option>100% Payment against Proforma Invoice / 100% предоплата согласно счёту-проформе</option>
-            <option>50% advance, 50% before shipment / 50% аванс, 50% до отгрузки</option>
-            <option>30 days from B/L date / 30 дней с даты коносамента</option>
-            <option>Letter of Credit / Аккредитив</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Валюта платежа</label>
-          <select id="c-currency" onchange="toggleOtherCurrency('c-currency-other',this)">
-            <option value="CNY">CNY ¥ — Юань</option>
+          </div>
+          <div class="field">
+            <label>Условия оплаты</label>
+            <select id="c-payment">
+              <option>100% Payment against Proforma Invoice / 100% предоплата согласно счёту-проформе</option>
+              <option>50% advance, 50% before shipment / 50% аванс, 50% до отгрузки</option>
+              <option>30 days from B/L date / 30 дней с даты коносамента</option>
+              <option>Letter of Credit / Аккредитив</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Валюта платежа</label>
+            <select id="c-currency" onchange="toggleOtherCurrency('c-currency-other',this)">
+              <option value="CNY">CNY ¥ — Юань</option>
               <option value="INR">INR ₹ — Рупия</option>
               <option value="USD">USD $ — Доллар</option>
               <option value="EUR">EUR € — Евро</option>
@@ -4854,27 +4879,32 @@
               <option value="OTHER">Другая...</option>
             </select>
             <input id="c-currency-other" placeholder="Код валюты (USD, GBP...)" style="display:none;margin-top:6px;font-size:12px" maxlength="10">
+          </div>
+          <div class="field">
+            <label>Адрес поставки (Delivery address)</label>
+            <input id="c-delivery-addr" value="Россия, г. Волгоград, ул. Историческая 191 / Russia, Volgograd, Istoricheskaya str. 191">
+          </div>
+          <div class="field">
+            <label>Срок поставки (недель / weeks)</label>
+            <input id="c-leadtime" placeholder="напр. 16 weeks from Purchase Order">
+          </div>
+          <div class="field">
+            <label>Гарантийный срок</label>
+            <input id="c-warranty" placeholder="напр. 24 months from delivery date">
+          </div>
         </div>
-        <div class="field">
-          <label>Адрес поставки (Delivery address)</label>
-          <input id="c-delivery-addr" value="Россия, г. Волгоград, ул. Историческая 191 / Russia, Volgograd, Istoricheskaya str. 191">
+
+        <!-- Action buttons -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center">
+          <button class="gen-btn" onclick="ctSaveAndGenerate()" style="margin:0">💾 Сохранить и сформировать</button>
+          <button class="gen-btn secondary" onclick="ctSaveOnly()" style="margin:0">💾 Сохранить в реестре</button>
+          <button class="gen-btn secondary" onclick="window.print()" style="margin:0">🖨 Печать</button>
+          <button class="gen-btn secondary" id="btn-export-pdf" onclick="exportContractPDF()" style="display:none;margin:0">⬇ PDF</button>
+          <button class="gen-btn secondary" id="btn-export-word" onclick="exportContractWord()" style="display:none;margin:0">⬇ Word (.docx)</button>
         </div>
-        <div class="field">
-          <label>Срок поставки (недель / weeks)</label>
-          <input id="c-leadtime" value="16 weeks from Purchase Order confirmation">
-        </div>
-        <div class="field">
-          <label>Гарантийный срок</label>
-          <input id="c-warranty" value="24 months from delivery date or 18 months from installation, whichever is earlier">
-        </div>
+
+        <div id="preview-area" class="preview-area"></div>
       </div>
-
-      <button class="gen-btn" onclick="generateContract()">⬡ Сформировать договор</button>
-      <button class="gen-btn secondary" onclick="window.print()">🖨 Печать</button>
-      <button class="gen-btn secondary" id="btn-export-pdf" onclick="exportContractPDF()" style="display:none">⬇ PDF</button>
-      <button class="gen-btn secondary" id="btn-export-word" onclick="exportContractWord()" style="display:none">⬇ Word (.docx)</button>
-
-      <div id="preview-area" class="preview-area"></div>
     </div>
 
     <!-- SPEC -->
@@ -8167,7 +8197,7 @@ function showSection(name) {
   if (name === 'budget') { bgLoad(); renderBudgets(); }
   if (name === 'payments') { pmLoad(); renderPayments(); }
   // Company tabs
-  if (name === 'contract') renderCompanyTabsInto('contract-company-tabs');
+  if (name === 'contract') ctShowList();
   if (name === 'invoice')  renderCompanyTabsInto('invoice-company-tabs');
   if (name === 'dashboard') setTimeout(() => dashLoad(), 50);
   if (name === 'purchase') prLoad();
@@ -8619,6 +8649,216 @@ function exportContractWord() {
   a.download = `Contract_${d.num.replace(/[\/\\]/g,'_')}.doc`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════════════════════════════
+// CONTRACT REGISTRY — реестр договоров
+// ══════════════════════════════════════════════════════════════
+
+function ctShowList() {
+  const lv = document.getElementById('ct-list-view');
+  const fv = document.getElementById('ct-form-view');
+  if (lv) lv.style.display = '';
+  if (fv) fv.style.display = 'none';
+  ctRenderList();
+  // also render company tabs (used by invoice etc)
+  renderCompanyTabsInto('contract-company-tabs');
+}
+
+function ctShowForm(id) {
+  const lv = document.getElementById('ct-list-view');
+  const fv = document.getElementById('ct-form-view');
+  if (lv) lv.style.display = 'none';
+  if (fv) fv.style.display = '';
+
+  const title = document.getElementById('ct-form-title');
+  const editId = document.getElementById('ct-editing-id');
+  const pa = document.getElementById('preview-area');
+  if (pa) pa.innerHTML = '';
+  const epdf = document.getElementById('btn-export-pdf');
+  const eword = document.getElementById('btn-export-word');
+  if (epdf) epdf.style.display = 'none';
+  if (eword) eword.style.display = 'none';
+
+  if (id) {
+    const c = DB_contracts.find(id);
+    if (c) ctFillForm(c);
+    if (title) title.textContent = 'Редактировать договор';
+    if (editId) editId.value = id;
+  } else {
+    ctClearForm();
+    if (title) title.textContent = 'Новый договор';
+    if (editId) editId.value = '';
+  }
+  renderCompanyTabsInto('contract-company-tabs');
+}
+
+function ctClearForm() {
+  const fields = ['c-num','c-date','c-seller-name','c-seller-addr','c-seller-rep',
+    'c-seller-pos','c-seller-bank','c-seller-swift','c-seller-acc','c-seller-ifsc',
+    'c-delivery-num','c-delivery-addr','c-leadtime','c-warranty'];
+  fields.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  // Reset buyer to company defaults
+  const buyerDefaults = {
+    'c-buyer-name': 'ООО «Ендейвер» / Endeavour LLC',
+    'c-buyer-addr': '117335, г. Москва, ул. Вавилова, д.79, корп.1, офис 6-3, этаж 2 / 79/1 Vavilova Street, Office 6-3, 2nd floor, 117335 Moscow, Russia',
+    'c-buyer-rep':  'Кирилюк Сергей Георгиевич / Sergey G. Kiriluk',
+    'c-buyer-pos':  'Генеральный директор / General Director',
+    'c-buyer-inn':  '', 'c-buyer-ogrn': '',
+    'c-buyer-bank': 'АО «Альфа-Банк», г. Москва / JSC Alfa-Bank, Moscow',
+    'c-buyer-bik':  '044525593',
+    'c-buyer-acc':  'RUR: 40702810000230000754 / USD: 40702840702300000217',
+    'c-buyer-swift':'ALFARUMM',
+    'c-buyer-corr': '30101810200000000593',
+    'c-buyer-bankaddr': '119261, г. Москва, Ленинский проспект, д.78 / Leninsky Prospect 78, Moscow'
+  };
+  Object.entries(buyerDefaults).forEach(([id, val]) => {
+    const el = document.getElementById(id); if (el) el.value = val;
+  });
+  const hint = document.getElementById('c-delivery-hint');
+  if (hint) hint.textContent = '';
+}
+
+function ctFillForm(c) {
+  const fld = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  fld('c-num', c.num); fld('c-date', c.date);
+  fld('c-seller-name', c.sellerName); fld('c-seller-addr', c.sellerAddr);
+  fld('c-seller-rep',  c.sellerRep);  fld('c-seller-pos', c.sellerPos);
+  fld('c-seller-bank', c.sellerBank); fld('c-seller-swift', c.sellerSwift);
+  fld('c-seller-acc',  c.sellerAcc);  fld('c-seller-ifsc', c.sellerIfsc);
+  fld('c-buyer-name',  c.buyerName);  fld('c-buyer-addr', c.buyerAddr);
+  fld('c-buyer-rep',   c.buyerRep);   fld('c-buyer-pos', c.buyerPos);
+  fld('c-buyer-inn',   c.buyerInn);   fld('c-buyer-ogrn', c.buyerOgrn);
+  fld('c-buyer-bank',  c.buyerBank);  fld('c-buyer-bik', c.buyerBik);
+  fld('c-buyer-acc',   c.buyerAcc);   fld('c-buyer-swift', c.buyerSwift);
+  fld('c-buyer-corr',  c.buyerCorr);  fld('c-buyer-bankaddr', c.buyerBankAddr || c.buyerBankaddr);
+  fld('c-delivery-addr', c.deliveryAddr); fld('c-leadtime', c.leadtime);
+  fld('c-warranty',   c.warranty);    fld('c-delivery-num', c.deliveryNum);
+  // selects
+  const selVal = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+  selVal('c-inco', c.inco); selVal('c-payment', c.payment); selVal('c-currency', c.currency);
+}
+
+function ctGetFormData() {
+  const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  return {
+    num: v('c-num'), date: v('c-date'),
+    sellerName: v('c-seller-name'), sellerAddr: v('c-seller-addr'),
+    sellerRep:  v('c-seller-rep'),  sellerPos:  v('c-seller-pos'),
+    sellerBank: v('c-seller-bank'), sellerSwift: v('c-seller-swift'),
+    sellerAcc:  v('c-seller-acc'),  sellerIfsc: v('c-seller-ifsc'),
+    buyerName:  v('c-buyer-name'),  buyerAddr:  v('c-buyer-addr'),
+    buyerRep:   v('c-buyer-rep'),   buyerPos:   v('c-buyer-pos'),
+    buyerInn:   v('c-buyer-inn'),   buyerOgrn:  v('c-buyer-ogrn'),
+    buyerBank:  v('c-buyer-bank'),  buyerBik:   v('c-buyer-bik'),
+    buyerAcc:   v('c-buyer-acc'),   buyerSwift: v('c-buyer-swift'),
+    buyerCorr:  v('c-buyer-corr'),  buyerBankAddr: v('c-buyer-bankaddr'),
+    inco: v('c-inco'), payment: v('c-payment'), currency: v('c-currency'),
+    deliveryAddr: v('c-delivery-addr'), leadtime: v('c-leadtime'),
+    warranty: v('c-warranty'), deliveryNum: v('c-delivery-num'),
+    status: 'active',
+    updatedAt: new Date().toISOString().slice(0, 10)
+  };
+}
+
+function ctSaveOnly() {
+  const eid = document.getElementById('ct-editing-id');
+  const editingId = eid ? eid.value : '';
+  const data = ctGetFormData();
+  if (!data.num)        { alert('Введите номер договора'); return; }
+  if (!data.sellerName) { alert('Введите наименование поставщика'); return; }
+  if (editingId) {
+    DB_contracts.update(editingId, { ...data, id: editingId });
+  } else {
+    DB_contracts.insert({ ...data, id: Date.now().toString(), createdAt: data.updatedAt });
+  }
+  ctShowList();
+}
+
+function ctSaveAndGenerate() {
+  const eid = document.getElementById('ct-editing-id');
+  const editingId = eid ? eid.value : '';
+  const data = ctGetFormData();
+  if (!data.num)        { alert('Введите номер договора'); return; }
+  if (!data.sellerName) { alert('Введите наименование поставщика'); return; }
+  let savedId = editingId;
+  if (editingId) {
+    DB_contracts.update(editingId, { ...data, id: editingId });
+  } else {
+    savedId = Date.now().toString();
+    DB_contracts.insert({ ...data, id: savedId, createdAt: data.updatedAt });
+    if (eid) eid.value = savedId;
+    // update form title
+    const t = document.getElementById('ct-form-title');
+    if (t) t.textContent = 'Редактировать договор';
+  }
+  generateContract(); // generate preview (existing function)
+}
+
+function ctDeleteContract(id) {
+  DB_contracts.delete(id);
+  ctRenderList();
+}
+
+function ctRenderList() {
+  const searchEl = document.getElementById('ct-search');
+  const search = searchEl ? searchEl.value.toLowerCase() : '';
+  let all = DB_contracts.all();
+  if (search) {
+    all = all.filter(c =>
+      (c.num || '').toLowerCase().includes(search) ||
+      (c.sellerName || '').toLowerCase().includes(search)
+    );
+  }
+
+  const body = document.getElementById('ct-list-body');
+  if (!body) return;
+
+  if (all.length === 0) {
+    body.innerHTML = `
+      <div style="text-align:center;padding:60px 20px;color:var(--text3)">
+        <div style="font-size:48px;margin-bottom:12px">📝</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text2);margin-bottom:6px">Реестр договоров пуст</div>
+        <div style="font-size:12px">Нажмите «+ Новый договор» чтобы добавить первый договор поставщика</div>
+      </div>`;
+    return;
+  }
+
+  const sorted = [...all].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const statusBadge = s => s === 'active'
+    ? `<span style="background:#e8f5e9;color:#2e7d32;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600">Действующий</span>`
+    : `<span style="background:#f5f5f5;color:#888;padding:2px 9px;border-radius:10px;font-size:11px">Архив</span>`;
+
+  body.innerHTML = `
+    <table class="data-table">
+      <thead><tr>
+        <th>Номер договора</th>
+        <th>Поставщик</th>
+        <th>Дата</th>
+        <th>Incoterms</th>
+        <th>Валюта</th>
+        <th>Статус</th>
+        <th style="width:80px"></th>
+      </tr></thead>
+      <tbody>
+        ${sorted.map(c => `<tr>
+          <td style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--co-accent);cursor:pointer" onclick="ctShowForm('${c.id}')">${c.num || '—'}</td>
+          <td style="font-weight:500">${c.sellerName || '—'}</td>
+          <td style="white-space:nowrap;color:var(--text2)">${c.date ? c.date.split('-').reverse().join('.') : '—'}</td>
+          <td><span style="background:var(--co-accent-light);color:var(--co-accent);padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600">${c.inco || '—'}</span></td>
+          <td style="color:var(--text2)">${c.currency || '—'}</td>
+          <td>${statusBadge(c.status)}</td>
+          <td style="white-space:nowrap;text-align:center">
+            <button onclick="ctShowForm('${c.id}')" title="Редактировать"
+              style="background:none;border:none;cursor:pointer;font-size:14px;padding:4px 6px;color:var(--text2)">✏️</button>
+            <button onclick="ctDeleteContract('${c.id}')" title="Удалить"
+              style="background:none;border:none;cursor:pointer;font-size:14px;padding:4px 6px;color:var(--text3)">🗑</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div style="margin-top:10px;font-size:11px;color:var(--text3)">Всего договоров: ${sorted.length}</div>`;
 }
 
 // ── SPEC PREVIEW ──
@@ -14307,6 +14547,8 @@ const DB_shipments_tracking = vedTable('shipments_tracking');
  * payments расширяется полем shipment_id (FK → DB_shipments)
  */
 const DB_shipment_budget = vedTable('shipment_budget');
+
+const DB_contracts             = vedTable('contracts');
 
 const DB_customs_declarations      = vedTable('customs_declarations');
 const DB_customs_declaration_items = vedTable('customs_declaration_items');
