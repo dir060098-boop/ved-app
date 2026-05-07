@@ -965,6 +965,36 @@
   }
   .doc-tag.received { border-color: rgba(31,122,99,0.25); color: var(--brand-green); background: rgba(31,122,99,0.07); }
   .doc-tag:hover { border-color: var(--co-accent); color: var(--co-accent); }
+
+  /* ── DOC STATUS BADGES ── */
+  .doc-pkg-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+    border-radius: 8px; cursor: pointer; transition: background 0.12s;
+    border: 1px solid transparent;
+  }
+  .doc-pkg-row:hover { background: var(--surface2); border-color: var(--border); }
+  .doc-pkg-icon { font-size: 15px; width: 22px; text-align: center; flex-shrink: 0; }
+  .doc-pkg-name { flex: 1; font-size: 12px; color: var(--text); }
+  .doc-pkg-name.required-doc::after { content: ' *'; color: var(--co-accent); font-weight: 700; }
+  .doc-status-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 20px; font-size: 10px; font-family: 'JetBrains Mono', monospace;
+    font-weight: 600; cursor: pointer; border: 1px solid; transition: all 0.15s; flex-shrink: 0;
+    user-select: none;
+  }
+  .doc-status-btn.st-none      { background: var(--surface2); color: var(--text3); border-color: var(--border); }
+  .doc-status-btn.st-requested { background: rgba(214,150,0,0.08); color: #c07000; border-color: rgba(214,150,0,0.3); }
+  .doc-status-btn.st-received  { background: rgba(31,122,99,0.08); color: var(--brand-green); border-color: rgba(31,122,99,0.3); }
+  .doc-status-btn.st-submitted { background: rgba(60,100,200,0.08); color: #3a6bc8; border-color: rgba(60,100,200,0.3); }
+  .doc-group-header {
+    font-family: 'JetBrains Mono', monospace; font-size: 9px; text-transform: uppercase;
+    letter-spacing: 1.5px; color: var(--co-accent); padding: 8px 10px 4px;
+    border-bottom: 1px solid var(--border); margin-bottom: 4px; display: flex;
+    align-items: center; justify-content: space-between;
+  }
+  .doc-group-progress { font-size: 9px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+  .doc-pkg-group { margin-bottom: 14px; }
+
   .update-form { background: var(--surface2); border: 1px solid var(--border); padding: 14px 16px; border-radius: var(--radius); }
 
   /* ── MODAL ── */
@@ -9719,13 +9749,31 @@ function addEvent(id) {
   showDetail(id);
 }
 
-function toggleDoc(id, di) {
+function toggleDoc(id, docId) {
   const s = shipments.find(x => x.id === id);
   if (!s) return;
-  s.docs[di].received = !s.docs[di].received;
-  if (s.docs[di].received) {
-    s.events.unshift({ date: new Date().toLocaleDateString('ru-RU'), icon: '📎', text: 'Получен документ: ' + s.docs[di].name, note: '' });
+  // Find doc by id (new) or index (legacy)
+  let doc = typeof docId === 'string'
+    ? s.docs.find(d => d.id === docId)
+    : s.docs[docId];
+  if (!doc) return;
+  // Migrate legacy boolean
+  if (doc.status === undefined) doc.status = doc.received ? 'received' : 'none';
+  const cur = doc.status || 'none';
+  const next = (DOC_STATUS_CYCLE[cur] || DOC_STATUS_CYCLE.none).next;
+  doc.status = next;
+  doc.received = (next === 'received' || next === 'submitted');
+  // Log event on key transitions
+  const today = new Date().toLocaleDateString('ru-RU');
+  if (next === 'received') {
+    s.events.unshift({ date: today, icon: '✅', text: 'Получен документ: ' + doc.name, note: '' });
+  } else if (next === 'submitted') {
+    s.events.unshift({ date: today, icon: '🏛️', text: 'Документ передан на таможню: ' + doc.name, note: '' });
+  } else if (next === 'requested') {
+    s.events.unshift({ date: today, icon: '📩', text: 'Документ запрошен: ' + doc.name, note: '' });
   }
+  shipmentsSyncToDB(s);
+  shipmentsSave();
   renderShipments();
   showDetail(id);
 }
@@ -9737,6 +9785,57 @@ function toggleExpand(id) {
   renderShipments();
   if (s.expanded) showDetail(id);
   else closeDetail();
+}
+
+function renderDocPackage(s) {
+  // Migrate docs to new format if needed
+  if (!s.docs || !s.docs.length) {
+    s.docs = SHP_DOCS_LIST.map(d => ({ id: d.id, name: d.name, icon: d.icon, status: 'none', received: false }));
+  }
+  // Build lookup by id
+  const docMap = {};
+  s.docs.forEach(d => { if (d.id) docMap[d.id] = d; });
+
+  const groupsHtml = SHP_DOC_GROUPS.map(group => {
+    const rowsHtml = group.docs.map(def => {
+      let doc = docMap[def.id];
+      if (!doc) {
+        // Try to find by name (legacy) or create new
+        doc = s.docs.find(d => d.name === def.name) || { id: def.id, name: def.name, status: 'none', received: false };
+        if (!doc.id) doc.id = def.id;
+        if (!doc.status) doc.status = doc.received ? 'received' : 'none';
+        docMap[def.id] = doc;
+      }
+      if (!doc.status) doc.status = doc.received ? 'received' : 'none';
+      const st = DOC_STATUS_CYCLE[doc.status] || DOC_STATUS_CYCLE.none;
+      return '<div class="doc-pkg-row" onclick="toggleDoc(' + s.id + ',\'' + def.id + '\')">' +
+        '<div class="doc-pkg-icon">' + def.icon + '</div>' +
+        '<div class="doc-pkg-name' + (def.required ? ' required-doc' : '') + '">' + def.name + '</div>' +
+        '<div class="doc-status-btn ' + st.cls + '">' + st.icon + ' ' + st.label + '</div>' +
+        '</div>';
+    }).join('');
+
+    const groupReceived = group.docs.filter(def => {
+      const doc = docMap[def.id];
+      return doc && (doc.status === 'received' || doc.status === 'submitted');
+    }).length;
+
+    return '<div class="doc-pkg-group">' +
+      '<div class="doc-group-header"><span>' + group.label + '</span>' +
+      '<span class="doc-group-progress">' + groupReceived + '/' + group.docs.length + '</span></div>' +
+      rowsHtml + '</div>';
+  }).join('');
+
+  const totalDocs = SHP_DOC_GROUPS.reduce((a, g) => a + g.docs.length, 0);
+  const totalReceived = SHP_DOC_GROUPS.reduce((a, g) => a + g.docs.filter(def => {
+    const doc = docMap[def.id];
+    return doc && (doc.status === 'received' || doc.status === 'submitted');
+  }).length, 0);
+
+  return '<div class="block-title" style="margin-bottom:10px">Пакет документов (' + totalReceived + '/' + totalDocs + ' получено)</div>' +
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:10px;font-family:\'JetBrains Mono\',monospace">' +
+    'Нажмите на статус для переключения: ⬜ Не получен → 📩 Запрошен → ✅ Получен → 🏛️ На таможне</div>' +
+    groupsHtml;
 }
 
 function showDetail(id) {
@@ -9768,16 +9867,7 @@ function showDetail(id) {
           </button>` : `<div style="color:#2e7d32;font-family:'IBM Plex Mono',monospace;font-size:11px;margin-top:8px">✓ Поставка завершена</div>`}
         </div>
       </div>
-      <div>
-        <div class="block-title" style="margin-bottom:12px">Документы (${docsReceived}/${s.docs.length})</div>
-        <div style="display:flex;flex-wrap:wrap">
-          ${s.docs.map((d, di) => `
-            <span class="doc-tag ${d.received ? 'received' : 'pending'}" onclick="toggleDoc(${id},${di})" title="Нажмите для смены статуса">
-              ${d.received ? '✓' : '○'} ${d.name}
-            </span>
-          `).join('')}
-        </div>
-      </div>
+      <div>${renderDocPackage(s)}</div>
     </div>
 
     <div class="block-title" style="margin-bottom:12px">История событий</div>
@@ -17741,18 +17831,42 @@ const SHP_STATUSES = {
   cancelled:  { label:'Отменена',  icon:'❌', cls:'cancelled'  },
 };
 
-const SHP_DOCS_LIST = [
-  'Invoice / Счёт-фактура',
-  'Packing List / Упаковочный лист',
-  'Bill of Lading / Коносамент',
-  'Certificate of Origin / Сертификат происхождения',
-  'Insurance Certificate / Страховой сертификат',
-  'Quality Certificate / Сертификат качества',
-  'Technical Passport',
-  'Freight Invoice / Счёт экспедитора',
-  'Customs Declaration (ДТ)',
-  'Payment Receipt / Платёжное поручение',
+const SHP_DOC_GROUPS = [
+  { id: 'commercial', label: 'Коммерческие документы', docs: [
+    { id: 'invoice',      name: 'Invoice / Инвойс',                   icon: '🧾', required: true  },
+    { id: 'packing',      name: 'Packing List / Упаковочный лист',     icon: '📦', required: true  },
+    { id: 'proforma',     name: 'Proforma / Проформа-инвойс',          icon: '📋', required: false },
+  ]},
+  { id: 'transport', label: 'Транспортные документы', docs: [
+    { id: 'bl',           name: 'Bill of Lading / Коносамент (B/L)',   icon: '🚢', required: true  },
+    { id: 'cmr',          name: 'CMR / Автотранспортная накладная',    icon: '🚛', required: false },
+    { id: 'awb',          name: 'Air Waybill (AWB)',                   icon: '✈️', required: false },
+    { id: 'railway',      name: 'Ж/Д накладная (SMGS/CIM)',            icon: '🚂', required: false },
+    { id: 'freight_inv',  name: 'Freight Invoice / Счёт экспедитора',  icon: '💰', required: false },
+  ]},
+  { id: 'origin', label: 'Документы о происхождении', docs: [
+    { id: 'cert_origin',  name: 'Certificate of Origin / Серт. происх.', icon: '🌐', required: true  },
+  ]},
+  { id: 'quality', label: 'Качество и сертификаты', docs: [
+    { id: 'cert_quality', name: 'Quality Certificate / Серт. качества',   icon: '🏆', required: false },
+    { id: 'cert_tech',    name: 'Technical Passport / Техпаспорт',         icon: '📄', required: false },
+    { id: 'datasheet',    name: 'Datasheet / Техническое описание',        icon: '📐', required: false },
+  ]},
+  { id: 'customs_pkg', label: 'Таможенные документы', docs: [
+    { id: 'dt',           name: 'Таможенная декларация (ДТ)',              icon: '🏛️', required: true  },
+    { id: 'payment_cust', name: 'Платёжка за таможню',                    icon: '🏦', required: true  },
+  ]},
 ];
+
+// Flat list (backward compat)
+const SHP_DOCS_LIST = SHP_DOC_GROUPS.flatMap(g => g.docs);
+
+const DOC_STATUS_CYCLE = {
+  none:      { label: 'Не получен', icon: '⬜', cls: 'st-none',      next: 'requested' },
+  requested: { label: 'Запрошен',   icon: '📩', cls: 'st-requested', next: 'received'  },
+  received:  { label: 'Получен',    icon: '✅', cls: 'st-received',  next: 'submitted' },
+  submitted: { label: 'На таможне', icon: '🏛️', cls: 'st-submitted', next: 'none'      },
+};
 
 /* ── Seed demo data ─────────────────────────────────────────────── */
 function shpSeed() {
@@ -17793,7 +17907,7 @@ function shpSeed() {
           { sku:'TCL-7C050-300', name:'7C X 0.50SQ.MM ARMOURED CABLE', unit:'Mtrs', qty:300, price:206.35, hs_code:'8544.49.9100', country:'India' },
           { sku:'TCL-4C050-300', name:'4C X 0.50SQ.MM ARMOURED CABLE', unit:'Mtrs', qty:300, price:155.06, hs_code:'8544.49.9100', country:'India' },
         ],
-        docs: SHP_DOCS_LIST.map((name, i) => ({ name, received: i < 4 })),
+        docs: SHP_DOCS_LIST.map((d, i) => ({ id: d.id, name: d.name, icon: d.icon, status: i < 4 ? 'received' : 'none', received: i < 4 })),
         customs_data: {
           declaration_num: '',
           customs_value_rub: 0,
@@ -17836,7 +17950,7 @@ function shpSeed() {
           { sku:'TCL-CTRL-24P', name:'24 PAIR CONTROL CABLE 0.5SQ', unit:'Mtrs', qty:100, price:410.00, hs_code:'8544.49.9100', country:'India' },
           { sku:'TCL-2C150-150', name:'2C X 1.50SQ.MM UNARMOURED CABLE', unit:'Mtrs', qty:150, price:88.00, hs_code:'8544.42.9000', country:'India' },
         ],
-        docs: SHP_DOCS_LIST.map((name, i) => ({ name, received: i < 2 })),
+        docs: SHP_DOCS_LIST.map((d, i) => ({ id: d.id, name: d.name, icon: d.icon, status: i < 2 ? 'received' : 'none', received: i < 2 })),
         customs_data: { declaration_num:'', customs_value_rub:0, duty_rate:5, duty_amount:0, vat_amount:0, customs_fees:0, broker_fee:0, notes:'' },
         payments: [
           { id:'p3', type:'advance', amount:13560, currency:'USD', due:'2026-03-10', paid:'', status:'pending', note:'30% аванс' },
@@ -18204,7 +18318,7 @@ function shpRemoveItem(idx) {
 
 /* ── TAB: DOCS ───────────────────────────────────────────────────── */
 function shpRenderDocs(s) {
-  const docs = s.docs || SHP_DOCS_LIST.map(name => ({ name, received: false }));
+  const docs = s.docs || SHP_DOCS_LIST.map(d => ({ id: d.id, name: d.name, icon: d.icon, status: 'none', received: false }));
   const el   = document.getElementById('shpd-docs-content');
   if (!el) return;
 
@@ -18228,7 +18342,7 @@ function shpRenderDocs(s) {
 function shpToggleDocItem(idx) {
   const s = DB_shipments.find(_shpCurrent);
   if (!s) return;
-  const docs = s.docs || SHP_DOCS_LIST.map(name => ({ name, received: false }));
+  const docs = s.docs || SHP_DOCS_LIST.map(d => ({ id: d.id, name: d.name, icon: d.icon, status: 'none', received: false }));
   if (docs[idx]) docs[idx].received = !docs[idx].received;
   DB_shipments.update(_shpCurrent, { docs });
   shpRenderDocs(DB_shipments.find(_shpCurrent));
@@ -18594,7 +18708,7 @@ function shpSave() {
     DB_shipments.update(id, data);
     showToast('✅ Поставка обновлена');
   } else {
-    DB_shipments.insert({ ...data, items:[], docs: SHP_DOCS_LIST.map(n=>({name:n,received:false})), customs_data:{}, payments:[], events:[{date:new Date().toLocaleDateString('ru-RU'), icon:'📄', text:'Поставка создана в системе', note:num}] });
+    DB_shipments.insert({ ...data, items:[], docs: SHP_DOCS_LIST.map(d=>({id:d.id, name:d.name, icon:d.icon, status:'none', received:false})), customs_data:{}, payments:[], events:[{date:new Date().toLocaleDateString('ru-RU'), icon:'📄', text:'Поставка создана в системе', note:num}] });
     showToast('✅ Поставка создана');
   }
 
