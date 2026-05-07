@@ -17189,7 +17189,8 @@ const SHP_DOCS_LIST = [
 
 /* ── Seed demo data ─────────────────────────────────────────────── */
 function shpSeed() {
-  if (DB_shipments.count() > 0) return;
+  if (localStorage.getItem('ved_shipments_seed_done')) return;
+  if (DB_shipments.count() > 0) { localStorage.setItem('ved_shipments_seed_done','1'); return; }
   try {
     const sups = JSON.parse(localStorage.getItem('ved_suppliers') || '[]');
     const sup1 = sups[0] || null;
@@ -17283,6 +17284,7 @@ function shpSeed() {
     ];
 
     demo.forEach(d => DB_shipments.insert(d));
+    localStorage.setItem('ved_shipments_seed_done', '1');
   } catch(e) { console.warn('shpSeed error:', e); }
 }
 
@@ -18043,7 +18045,6 @@ function shpGenNumber() {
 }
 
 function shpDelete(id) {
-  if (!confirm('Удалить поставку?')) return;
   DB_shipments.delete(id);
   shpLoad();
   showToast('🗑 Поставка удалена');
@@ -18055,7 +18056,6 @@ function shpEditCurrent() {
 
 function shpDeleteCurrent() {
   if (!_shpCurrent) return;
-  if (!confirm('Удалить поставку?')) return;
   DB_shipments.delete(_shpCurrent);
   shpCloseDetail();
   shpLoad();
