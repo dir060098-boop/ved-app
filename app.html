@@ -4426,31 +4426,22 @@
       <span class="nav-icon">🏠</span> Обзор
     </div>
 
-    <!-- ПОСТАВКИ — центральный раздел -->
+    <!-- ПОСТАВКИ — центральный объект процесса -->
     <div class="nav-sep"></div>
     <div class="nav-label">📦 Поставки</div>
     <div class="nav-item nav-accent" onclick="showSection('shipments')">
       <span class="nav-icon">🚢</span> Реестр поставок
     </div>
-    <div class="nav-item nav-sub" onclick="showSection('purchase')">
-      <span class="nav-icon">📋</span> Заявки на закупку
-    </div>
-    <div class="nav-item nav-sub" onclick="showSection('rfq-supplier')">
-      <span class="nav-icon">💬</span> Запросы поставщикам
-    </div>
-    <div class="nav-item nav-sub" onclick="showSection('analytics')">
-      <span class="nav-icon">📊</span> Аналитика
-    </div>
-
-    <!-- ДОКУМЕНТЫ -->
-    <div class="nav-sep"></div>
-    <div class="nav-label">📄 Документы</div>
     <div class="nav-item nav-sub" onclick="showSection('contract')">
-      <span class="nav-icon">📝</span> Договор поставки
+      <span class="nav-icon">📝</span> Реестр договоров
     </div>
     <div class="nav-item nav-sub" onclick="showSection('spec')">
-      <span class="nav-icon">📐</span> Спецификация
+      <span class="nav-icon">📐</span> Спецификации
     </div>
+
+    <!-- ДОКУМЕНТЫ — от поставщика -->
+    <div class="nav-sep"></div>
+    <div class="nav-label">📄 Документы</div>
     <div class="nav-item nav-sub" onclick="showSection('invoice')">
       <span class="nav-icon">🧾</span> Инвойс / Счёт
     </div>
@@ -4471,17 +4462,17 @@
       <span class="nav-icon">⏰</span> Дедлайн-монитор
     </div>
 
-    <!-- ТАМОЖНЯ -->
+    <!-- ТАМОЖНЯ — порядок: сначала считаем, потом оформляем -->
     <div class="nav-sep"></div>
     <div class="nav-label">🛃 Таможня</div>
-    <div class="nav-item nav-sub" onclick="showSection('customs-declarations')">
-      <span class="nav-icon">🛃</span> Реестр ДТ
+    <div class="nav-item nav-sub" onclick="showSection('calc')">
+      <span class="nav-icon">🔢</span> Калькулятор пошлин
     </div>
     <div class="nav-item nav-sub" onclick="showSection('customs')">
-      <span class="nav-icon">✅</span> Чек-лист
+      <span class="nav-icon">✅</span> Чек-лист документов
     </div>
-    <div class="nav-item nav-sub" onclick="showSection('calc')">
-      <span class="nav-icon">🔢</span> Калькулятор
+    <div class="nav-item nav-sub" onclick="showSection('customs-declarations')">
+      <span class="nav-icon">🛃</span> Реестр ДТ
     </div>
 
     <!-- ФИНАНСЫ -->
@@ -4491,10 +4482,17 @@
       <span class="nav-icon">💳</span> Реестр платежей
     </div>
     <div class="nav-item nav-sub" onclick="showSection('budget')">
-      <span class="nav-icon">📊</span> Бюджет поставки
+      <span class="nav-icon">📊</span> Себестоимость
     </div>
     <div class="nav-item nav-sub" onclick="showSection('currency')">
-      <span class="nav-icon">💱</span> Конвертер валют
+      <span class="nav-icon">💱</span> Курсы валют
+    </div>
+
+    <!-- АНАЛИТИКА -->
+    <div class="nav-sep"></div>
+    <div class="nav-label">📈 Аналитика</div>
+    <div class="nav-item nav-sub" onclick="showSection('analytics')">
+      <span class="nav-icon">📊</span> Отчёты и графики
     </div>
 
     <!-- СПРАВОЧНИКИ -->
@@ -4505,6 +4503,16 @@
     </div>
     <div class="nav-item nav-sub" onclick="showSection('catalog')">
       <span class="nav-icon">🗂</span> Каталог товаров
+    </div>
+
+    <!-- ДОПОЛНИТЕЛЬНО — менее используемые модули -->
+    <div class="nav-sep"></div>
+    <div class="nav-label" style="opacity:0.6">Дополнительно</div>
+    <div class="nav-item nav-sub" style="opacity:0.75" onclick="showSection('purchase')">
+      <span class="nav-icon">📋</span> Заявки на закупку
+    </div>
+    <div class="nav-item nav-sub" style="opacity:0.75" onclick="showSection('rfq-supplier')">
+      <span class="nav-icon">💬</span> Запросы поставщикам
     </div>
 
     <!-- СИСТЕМА -->
@@ -4668,8 +4676,8 @@
     </div>
 
 <div id="section-contract" class="section">
-      <div class="section-title">Договор поставки</div>
-      <div class="section-sub">Sales Contract · двуязычная форма</div>
+      <div class="section-title">Реестр договоров</div>
+      <div class="section-sub">Sales Contract · двуязычная форма · список по поставщикам</div>
 
       <!-- PDF Import -->
       <div class="inv-import-box" id="ct-import-box" ondragover="event.preventDefault()" ondrop="ctHandleDrop(event)">
@@ -4871,8 +4879,8 @@
 
     <!-- SPEC -->
     <div id="section-spec" class="section">
-      <div class="section-title">Спецификация</div>
-      <div class="section-sub">Specification · приложение к договору</div>
+      <div class="section-title">Спецификации</div>
+      <div class="section-sub">Specification · приложение к договору · №1, №2, №3...</div>
 
       <!-- Shipment link for spec -->
       <div style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -5767,8 +5775,8 @@
 
     <!-- CUSTOMS CHECKLIST -->
     <div id="section-customs" class="section">
-      <div class="section-title">Чек-лист таможни</div>
-      <div class="section-sub">Customs Checklist · документы для импорта в РФ</div>
+      <div class="section-title">Чек-лист документов</div>
+      <div class="section-sub">Customs Checklist · пакет документов для таможенного оформления</div>
 
       <!-- CONTROLS -->
       <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:28px">
@@ -5912,8 +5920,8 @@
 
     <!-- CUSTOMS CALCULATOR -->
     <div id="section-calc" class="section">
-      <div class="section-title">Калькулятор таможенных платежей</div>
-      <div class="section-sub">Расчёт пошлины, НДС и таможенных сборов · Импорт в РФ</div>
+      <div class="section-title">Калькулятор пошлин</div>
+      <div class="section-sub">Расчёт пошлины, НДС и таможенных сборов · Импорт в РФ · курс ЦБ РФ</div>
       <!-- ── Shipment link banner (Этап 9) ── -->
       <div id="calc-shipment-bar" style="display:none;margin-bottom:16px;padding:10px 16px;
            background:var(--co-accent-light);border:1.5px solid var(--co-accent-border);
@@ -6280,8 +6288,8 @@
 
     <!-- CURRENCY CONVERTER -->
     <div id="section-currency" class="section">
-      <div class="section-title">Конвертер валют</div>
-      <div class="section-sub">Курсы ЦБ РФ · История · Пересчёт сумм контрактов</div>
+      <div class="section-title">Курсы валют</div>
+      <div class="section-sub">Курсы ЦБ РФ · История · Фиксация на дату контракта / платежа / таможни</div>
 
       <!-- Rate cards -->
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
@@ -6400,8 +6408,8 @@
 
     <!-- BUDGET -->
     <div id="section-budget" class="section">
-      <div class="section-title">Контроль бюджета поставки</div>
-      <div class="section-sub">План vs Факт · Себестоимость на складе · Отклонения</div>
+      <div class="section-title">Себестоимость поставки</div>
+      <div class="section-sub">Товар + Логистика + Таможня · Полная стоимость · % накладных расходов</div>
 
       <!-- KPI strip (summary across all shipments) -->
       <div class="bg-kpi-strip" id="bg-kpi-strip">
