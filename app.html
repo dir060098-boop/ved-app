@@ -1031,23 +1031,30 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
 
   @media print {
+    /* Сбрасываем grid-макет — иначе nav занимает 228px даже скрытая */
+    .shell { display: block !important; }
+    main   { width: 100% !important; padding: 0 !important; box-sizing: border-box; }
+
     /* Скрываем весь интерфейс */
     header, nav, #sp-list-view, #ct-list-view { display: none !important; }
     .gen-btn, .copy-btn, .add-row-btn, .si-load-btn, .del-btn { display: none !important; }
-    main { padding: 0; }
+
     /* Скрываем форму — показываем только превью */
     #sp-form-view > *:not(#spec-preview-area),
     #ct-form-view > *:not(#preview-area) { display: none !important; }
-    /* Убираем тени с превью, оставляем только контент документа */
+
+    /* Убираем тени, рамки — только контент документа */
     #preview-area, .preview-area, #spec-preview-area {
       box-shadow: none !important;
       border: none !important;
       display: block !important;
       margin: 0 !important;
       padding: 0 !important;
+      background: white !important;
     }
-    /* Скрываем copy-btn внутри превью (Печать/PDF кнопки самого превью) */
-    .preview-area .copy-btn { display: none !important; }
+
+    /* Скрываем copy-btn внутри превью */
+    .preview-area .copy-btn, #spec-preview-area .copy-btn { display: none !important; }
   }
 
   /* ── AUTH SCREEN ── */
