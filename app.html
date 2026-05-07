@@ -4912,94 +4912,119 @@
       <div class="section-title">Спецификации</div>
       <div class="section-sub">Specification · приложение к договору · №1, №2, №3...</div>
 
-      <!-- Shipment link for spec -->
-      <div style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button class="si-load-btn" onclick="specLinkShipment()" style="background:var(--surface);color:var(--text2);border-color:var(--border)">
-          🚢 Привязать поставку
-        </button>
-        <span style="font-size:11.5px;color:var(--text3)">Для загрузки товаров из поставки</span>
-      </div>
-
-      <!-- Proforma Import Zone -->
-      <!-- Shipment items loader for spec -->
-      <div id="spec-si-banner" style="display:none;margin-bottom:12px;padding:10px 16px;
-           background:var(--co-accent-light);border:1.5px solid var(--co-accent);
-           border-radius:var(--radius);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span>🚢</span>
-        <div style="flex:1;font-size:12px;color:var(--text2)">
-          Есть привязка к поставке.
-          <span id="spec-si-ship-name" style="font-weight:700;color:var(--co-accent)"></span>
+      <!-- ═══════════════════════════════════════════════════════
+           LIST VIEW — реестр всех спецификаций
+           ═══════════════════════════════════════════════════════ -->
+      <div id="sp-list-view">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <input id="sp-search" type="text" placeholder="🔍 Поиск по номеру договора или поставщику..."
+                 style="width:300px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface2);color:var(--text);font-size:13px"
+                 oninput="spRenderList()">
+          <button class="gen-btn" onclick="spShowForm(null)" style="margin:0">+ Новая спецификация</button>
         </div>
-        <button class="si-load-btn" id="spec-si-btn"
-                onclick="siLoadIntoSpec(document.getElementById('spec-linked-ship-id').value)">
-          📦 Загрузить товары из поставки
-        </button>
+        <div id="sp-list-body"></div>
       </div>
-      <input type="hidden" id="spec-linked-ship-id">
 
-      <div id="sp-import-box" class="inv-import-box"
-           ondragover="event.preventDefault();this.classList.add('dragover')"
-           ondragleave="this.classList.remove('dragover')"
-           ondrop="spImportDrop(event)">
-        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-          <div style="font-size:32px">📋</div>
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:3px">Импорт из проформы-инвойса</div>
-            <div style="font-size:11px;color:var(--text3)">PDF, Excel, Word, фото — Claude извлечёт позиции, реквизиты, инкотермс, валюту и заполнит спецификацию</div>
+      <!-- ═══════════════════════════════════════════════════════
+           FORM VIEW — создание / редактирование спецификации
+           ═══════════════════════════════════════════════════════ -->
+      <div id="sp-form-view" style="display:none">
+        <input type="hidden" id="sp-editing-id">
+
+        <!-- Навигация назад -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+          <button onclick="spShowList()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 14px;cursor:pointer;color:var(--text2);font-size:13px">← Реестр</button>
+          <span id="sp-form-title" style="font-size:16px;font-weight:700;color:var(--text)">Новая спецификация</span>
+        </div>
+
+        <!-- Shipment link for spec -->
+        <div style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <button class="si-load-btn" onclick="specLinkShipment()" style="background:var(--surface);color:var(--text2);border-color:var(--border)">
+            🚢 Привязать поставку
+          </button>
+          <span style="font-size:11.5px;color:var(--text3)">Для загрузки товаров из поставки</span>
+        </div>
+
+        <!-- Shipment items loader for spec -->
+        <div id="spec-si-banner" style="display:none;margin-bottom:12px;padding:10px 16px;
+             background:var(--co-accent-light);border:1.5px solid var(--co-accent);
+             border-radius:var(--radius);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span>🚢</span>
+          <div style="flex:1;font-size:12px;color:var(--text2)">
+            Есть привязка к поставке.
+            <span id="spec-si-ship-name" style="font-weight:700;color:var(--co-accent)"></span>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <label style="cursor:pointer">
-              <input type="file" accept=".pdf,.xlsx,.xls,.docx,.doc,.jpg,.jpeg,.png,.webp" style="display:none" onchange="spImportFile(this.files[0]);this.value=''">
-              <span class="gen-btn" style="margin:0;padding:7px 16px;font-size:12px;display:inline-block">Выбрать файл</span>
-            </label>
-            <button class="gen-btn secondary" onclick="toggleSpPasteMode()" style="margin:0;padding:7px 16px;font-size:12px">Вставить текст</button>
+          <button class="si-load-btn" id="spec-si-btn"
+                  onclick="siLoadIntoSpec(document.getElementById('spec-linked-ship-id').value)">
+            📦 Загрузить товары из поставки
+          </button>
+        </div>
+        <input type="hidden" id="spec-linked-ship-id">
+
+        <!-- Proforma import -->
+        <div id="sp-import-box" class="inv-import-box"
+             ondragover="event.preventDefault();this.classList.add('dragover')"
+             ondragleave="this.classList.remove('dragover')"
+             ondrop="spImportDrop(event)">
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <div style="font-size:32px">📋</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:3px">Импорт из проформы-инвойса</div>
+              <div style="font-size:11px;color:var(--text3)">PDF, Excel, Word, фото — извлечёт позиции, реквизиты, инкотермс, валюту и заполнит спецификацию</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <label style="cursor:pointer">
+                <input type="file" accept=".pdf,.xlsx,.xls,.docx,.doc,.jpg,.jpeg,.png,.webp" style="display:none" onchange="spImportFile(this.files[0]);this.value=''">
+                <span class="gen-btn" style="margin:0;padding:7px 16px;font-size:12px;display:inline-block">Выбрать файл</span>
+              </label>
+              <button class="gen-btn secondary" onclick="toggleSpPasteMode()" style="margin:0;padding:7px 16px;font-size:12px">Вставить текст</button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Paste fallback -->
-      <div id="sp-paste-box" style="display:none;margin-bottom:16px">
-        <textarea id="sp-paste-text" rows="5" style="width:100%;font-size:12px;font-family:'JetBrains Mono',monospace;border:1px solid var(--border);border-radius:var(--radius);padding:10px;resize:vertical;background:var(--surface2);color:var(--text)" placeholder="Вставьте текст проформы-инвойса (Ctrl+A → Ctrl+C из PDF или Word)..."></textarea>
-        <div style="display:flex;gap:8px;margin-top:6px">
-          <button class="gen-btn" onclick="spImportFromText(document.getElementById('sp-paste-text').value)" style="margin:0;padding:7px 16px;font-size:12px">Извлечь данные</button>
-          <button class="gen-btn secondary" onclick="toggleSpPasteMode()" style="margin:0;padding:7px 16px;font-size:12px">Закрыть</button>
-        </div>
-      </div>
-
-      <!-- Import status & preview -->
-      <div id="sp-import-status" style="display:none;margin-bottom:12px;font-size:12px"></div>
-      <div id="sp-import-preview" style="display:none;background:var(--surface2);border:1px solid var(--co-accent-border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:20px">
-        <div style="font-size:12px;font-weight:600;color:var(--co-accent);margin-bottom:12px">📋 Извлечено из проформы — проверьте и примените</div>
-        <div id="sp-preview-content"></div>
-        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-          <button class="gen-btn" onclick="spApplyExtracted()" style="margin:0;padding:7px 16px;font-size:12px">✅ Применить всё</button>
-          <button class="gen-btn secondary" onclick="spApplyItemsOnly()" style="margin:0;padding:7px 16px;font-size:12px">Только позиции</button>
-          <button class="gen-btn secondary" onclick="document.getElementById('sp-import-preview').style.display='none'" style="margin:0;padding:7px 16px;font-size:12px">Отмена</button>
-        </div>
-      </div>
-
-      <div class="block-title">Ссылка на договор</div>
-      <div class="form-grid">
-        <div class="field">
-          <label>Номер договора</label>
-          <div style="display:flex;gap:6px;align-items:center">
-            <input id="s-contract-num" value="ENDV2026-03/4" style="flex:1" oninput="specContractHint(this.value)">
-            <button onclick="openContractByNum(document.getElementById('s-contract-num').value)" title="Открыть договор" style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;cursor:pointer;color:var(--co-accent);font-size:13px;transition:all 0.15s" onmouseover="this.style.borderColor='var(--co-accent)';this.style.background='var(--co-accent-light)'" onmouseout="this.style.borderColor='var(--border)';this.style.background='none'">↗</button>
+        <!-- Paste fallback -->
+        <div id="sp-paste-box" style="display:none;margin-bottom:16px">
+          <textarea id="sp-paste-text" rows="5" style="width:100%;font-size:12px;font-family:'JetBrains Mono',monospace;border:1px solid var(--border);border-radius:var(--radius);padding:10px;resize:vertical;background:var(--surface2);color:var(--text)" placeholder="Вставьте текст проформы-инвойса (Ctrl+A → Ctrl+C из PDF или Word)..."></textarea>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <button class="gen-btn" onclick="spImportFromText(document.getElementById('sp-paste-text').value)" style="margin:0;padding:7px 16px;font-size:12px">Извлечь данные</button>
+            <button class="gen-btn secondary" onclick="toggleSpPasteMode()" style="margin:0;padding:7px 16px;font-size:12px">Закрыть</button>
           </div>
-          <div id="s-contract-hint" style="font-size:10px;margin-top:4px;font-family:'JetBrains Mono',monospace"></div>
         </div>
-        <div class="field">
-          <label>Дата договора</label>
-          <input id="s-contract-date" type="date" value="2026-02-10">
+
+        <!-- Import status & preview -->
+        <div id="sp-import-status" style="display:none;margin-bottom:12px;font-size:12px"></div>
+        <div id="sp-import-preview" style="display:none;background:var(--surface2);border:1px solid var(--co-accent-border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:20px">
+          <div style="font-size:12px;font-weight:600;color:var(--co-accent);margin-bottom:12px">📋 Извлечено из проформы — проверьте и примените</div>
+          <div id="sp-preview-content"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+            <button class="gen-btn" onclick="spApplyExtracted()" style="margin:0;padding:7px 16px;font-size:12px">✅ Применить всё</button>
+            <button class="gen-btn secondary" onclick="spApplyItemsOnly()" style="margin:0;padding:7px 16px;font-size:12px">Только позиции</button>
+            <button class="gen-btn secondary" onclick="document.getElementById('sp-import-preview').style.display='none'" style="margin:0;padding:7px 16px;font-size:12px">Отмена</button>
+          </div>
         </div>
-        <div class="field">
-          <label>Номер спецификации</label>
-          <input id="s-spec-num" value="1">
-        </div>
-        <div class="field">
-          <label>Валюта</label>
-          <select id="s-currency" onchange="toggleOtherCurrency('s-currency-other',this)">
-            <option value="CNY">CNY ¥ — Юань</option>
+
+        <div class="block-title">Ссылка на договор</div>
+        <div class="form-grid">
+          <div class="field">
+            <label>Номер договора</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input id="s-contract-num" placeholder="ENDV2026-XX/X" style="flex:1" oninput="specContractHint(this.value)">
+              <button onclick="openContractByNum(document.getElementById('s-contract-num').value)" title="Открыть договор" style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;cursor:pointer;color:var(--co-accent);font-size:13px;transition:all 0.15s" onmouseover="this.style.borderColor='var(--co-accent)';this.style.background='var(--co-accent-light)'" onmouseout="this.style.borderColor='var(--border)';this.style.background='none'">↗</button>
+            </div>
+            <div id="s-contract-hint" style="font-size:10px;margin-top:4px;font-family:'JetBrains Mono',monospace"></div>
+          </div>
+          <div class="field">
+            <label>Дата договора</label>
+            <input id="s-contract-date" type="date">
+          </div>
+          <div class="field">
+            <label>Номер спецификации (Приложение №)</label>
+            <input id="s-spec-num" placeholder="1">
+          </div>
+          <div class="field">
+            <label>Валюта</label>
+            <select id="s-currency" onchange="toggleOtherCurrency('s-currency-other',this);renderSpecTable()">
+              <option value="CNY">CNY ¥ — Юань</option>
               <option value="INR">INR ₹ — Рупия</option>
               <option value="USD">USD $ — Доллар</option>
               <option value="EUR">EUR € — Евро</option>
@@ -5007,61 +5032,64 @@
               <option value="OTHER">Другая...</option>
             </select>
             <input id="s-currency-other" placeholder="Код валюты (USD, GBP...)" style="display:none;margin-top:6px;font-size:12px" maxlength="10">
+          </div>
         </div>
-      </div>
 
-      <div class="block-title">Товары</div>
-      <table class="goods-table" id="spec-goods-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Описание товара</th>
-            <th>Ед.изм.</th>
-            <th>Кол-во</th>
-            <th>Цена за ед.</th>
-            <th>Сумма</th>
-            <th></th>
-          </tr>
-        </thead>
-        <div id="spec-si-banner" class="si-source-banner" style="display:none"></div>
-        <tbody id="spec-goods-body">
-        </tbody>
-      </table>
-      <button class="add-row-btn" onclick="addSpecRow()">+ Добавить позицию</button>
-      <button class="add-row-btn" onclick="catOpenPicker(p=>{specRows.push({desc:p.name,descRu:p.name_ru||p.name,unit:p.unit||'Pcs',qty:0,price:p.price||0,hs_code:p.hs_code||''});renderSpecTable();},'Выберите товар для спецификации')" style="border-color:var(--teal);color:var(--teal)">📦 Из каталога</button>
-      <button class="add-row-btn"
-              onclick="siPickShipmentForDoc('spec')"
-              style="border-color:var(--co-accent);color:var(--co-accent);margin-left:4px"
-              title="Загрузить товары из поставки">🚢 Из поставки</button>
-
-      <div class="total-box" id="spec-total-box">
-        <div>
-          <div class="lbl">Итого / Total</div>
-          <div class="val" id="spec-total-val">0.00</div>
+        <div class="block-title">Товары</div>
+        <table class="goods-table" id="spec-goods-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Описание товара</th>
+              <th>Ед.изм.</th>
+              <th>Кол-во</th>
+              <th>Цена за ед.</th>
+              <th>Сумма</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="spec-goods-body"></tbody>
+        </table>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button class="add-row-btn" onclick="addSpecRow()">+ Добавить позицию</button>
+          <button class="add-row-btn" onclick="catOpenPicker(p=>{specRows.push({desc:p.name,descRu:p.name_ru||p.name,unit:p.unit||'Pcs',qty:0,price:p.price||0,hs_code:p.hs_code||''});renderSpecTable();},'Выберите товар для спецификации')" style="border-color:var(--teal);color:var(--teal)">📦 Из каталога</button>
+          <button class="add-row-btn" onclick="siPickShipmentForDoc('spec')" style="border-color:var(--co-accent);color:var(--co-accent)" title="Загрузить товары из поставки">🚢 Из поставки</button>
         </div>
-        <div class="currency" id="spec-currency-lbl">INR ₹</div>
-      </div>
 
-      <div class="form-grid">
-        <div class="field">
-          <label>Условия поставки</label>
-          <select id="s-inco">
+        <div class="total-box" id="spec-total-box">
+          <div>
+            <div class="lbl">Итого / Total</div>
+            <div class="val" id="spec-total-val">0.00</div>
+          </div>
+          <div class="currency" id="spec-currency-lbl">INR ₹</div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field">
+            <label>Условия поставки</label>
+            <select id="s-inco">
               <option value="EXW">EXW — Ex Works</option>
               <option value="FCA">FCA — Free Carrier</option>
               <option value="FOB">FOB — Free on Board</option>
               <option value="FOT">FOT — Free on Truck</option>
               <option value="DAP">DAP — Delivered at Place</option>
             </select>
+          </div>
+          <div class="field">
+            <label>Срок изготовления</label>
+            <input id="s-lead" placeholder="напр. 60 days from payment">
+          </div>
         </div>
-        <div class="field">
-          <label>Срок изготовления</label>
-          <input id="s-lead" placeholder="60 days from payment" value="60 days from payment">
-        </div>
-      </div>
 
-      <button class="gen-btn" onclick="generateSpec()">⬡ Сформировать спецификацию</button>
-      <button class="gen-btn secondary" onclick="window.print()">Печать</button>
-      <div id="spec-preview-area" class="preview-area"></div>
+        <!-- Action buttons -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center">
+          <button class="gen-btn" onclick="spSaveAndGenerate()" style="margin:0">💾 Сохранить и сформировать</button>
+          <button class="gen-btn secondary" onclick="spSaveOnly()" style="margin:0">💾 Сохранить в реестре</button>
+          <button class="gen-btn secondary" onclick="window.print()" style="margin:0">🖨 Печать</button>
+        </div>
+
+        <div id="spec-preview-area" class="preview-area"></div>
+      </div>
     </div>
 
     <!-- INVOICE -->
@@ -8198,6 +8226,7 @@ function showSection(name) {
   if (name === 'payments') { pmLoad(); renderPayments(); }
   // Company tabs
   if (name === 'contract') ctShowList();
+  if (name === 'spec') spShowList();
   if (name === 'invoice')  renderCompanyTabsInto('invoice-company-tabs');
   if (name === 'dashboard') setTimeout(() => dashLoad(), 50);
   if (name === 'purchase') prLoad();
@@ -8859,6 +8888,206 @@ function ctRenderList() {
       </tbody>
     </table>
     <div style="margin-top:10px;font-size:11px;color:var(--text3)">Всего договоров: ${sorted.length}</div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// SPEC REGISTRY — реестр спецификаций
+// ══════════════════════════════════════════════════════════════
+
+function spShowList() {
+  const lv = document.getElementById('sp-list-view');
+  const fv = document.getElementById('sp-form-view');
+  if (lv) lv.style.display = '';
+  if (fv) fv.style.display = 'none';
+  spRenderList();
+}
+
+function spShowForm(id) {
+  const lv = document.getElementById('sp-list-view');
+  const fv = document.getElementById('sp-form-view');
+  if (lv) lv.style.display = 'none';
+  if (fv) fv.style.display = '';
+
+  const title   = document.getElementById('sp-form-title');
+  const editId  = document.getElementById('sp-editing-id');
+  const pa      = document.getElementById('spec-preview-area');
+  if (pa) pa.innerHTML = '';
+
+  if (id) {
+    const s = DB_specs_registry.find(id);
+    if (s) spFillForm(s);
+    if (title)  title.textContent = 'Редактировать спецификацию';
+    if (editId) editId.value = id;
+  } else {
+    spClearForm();
+    if (title)  title.textContent = 'Новая спецификация';
+    if (editId) editId.value = '';
+  }
+}
+
+function spClearForm() {
+  const clear = ids => ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  clear(['s-contract-num','s-contract-date','s-spec-num','s-lead',
+         'spec-linked-ship-id','sp-editing-id']);
+  const hint = document.getElementById('s-contract-hint');
+  if (hint) hint.textContent = '';
+  const banner = document.getElementById('spec-si-banner');
+  if (banner) banner.style.display = 'none';
+  // Reset goods table
+  specRows.length = 0;
+  renderSpecTable();
+}
+
+function spFillForm(s) {
+  const fld = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  fld('s-contract-num',  s.contractNum);
+  fld('s-contract-date', s.contractDate);
+  fld('s-spec-num',      s.specNum);
+  fld('s-lead',          s.lead);
+  const incoEl = document.getElementById('s-inco');
+  if (incoEl && s.inco) incoEl.value = s.inco;
+  const curEl  = document.getElementById('s-currency');
+  if (curEl  && s.currency) curEl.value = s.currency;
+  // Load items into specRows
+  specRows.length = 0;
+  if (s.items && s.items.length) {
+    s.items.forEach(it => specRows.push({
+      desc: it.desc || '', descRu: it.descRu || '',
+      unit: it.unit || 'Pcs', qty: it.qty || 0, price: it.price || 0
+    }));
+  }
+  renderSpecTable();
+  if (s.contractNum) specContractHint(s.contractNum);
+}
+
+function spGetFormData() {
+  const v    = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const inco = document.getElementById('s-inco');
+  const items = specRows.map(r => ({
+    desc: r.desc, descRu: r.descRu || '', unit: r.unit, qty: r.qty, price: r.price
+  }));
+  const total = items.reduce((sum, r) => sum + (r.qty * r.price), 0);
+  return {
+    contractNum:  v('s-contract-num'),
+    contractDate: v('s-contract-date'),
+    specNum:      v('s-spec-num'),
+    currency:     v('s-currency'),
+    inco:         inco ? inco.value : 'EXW',
+    lead:         v('s-lead'),
+    items,
+    total,
+    status: 'active',
+    updatedAt: new Date().toISOString().slice(0, 10)
+  };
+}
+
+function spSaveOnly() {
+  const eid = document.getElementById('sp-editing-id');
+  const editingId = eid ? eid.value : '';
+  const data = spGetFormData();
+  if (!data.contractNum) { alert('Введите номер договора'); return; }
+  if (!data.specNum)     { alert('Введите номер спецификации'); return; }
+  if (editingId) {
+    DB_specs_registry.update(editingId, { ...data, id: editingId });
+  } else {
+    DB_specs_registry.insert({ ...data, id: Date.now().toString(), createdAt: data.updatedAt });
+  }
+  // Also sync to old ved_contracts key for autofill compatibility
+  specSaveToStorage();
+  spShowList();
+}
+
+function spSaveAndGenerate() {
+  const eid = document.getElementById('sp-editing-id');
+  const editingId = eid ? eid.value : '';
+  const data = spGetFormData();
+  if (!data.contractNum) { alert('Введите номер договора'); return; }
+  if (!data.specNum)     { alert('Введите номер спецификации'); return; }
+  let savedId = editingId;
+  if (editingId) {
+    DB_specs_registry.update(editingId, { ...data, id: editingId });
+  } else {
+    savedId = Date.now().toString();
+    DB_specs_registry.insert({ ...data, id: savedId, createdAt: data.updatedAt });
+    if (eid) eid.value = savedId;
+    const t = document.getElementById('sp-form-title');
+    if (t) t.textContent = 'Редактировать спецификацию';
+  }
+  specSaveToStorage();
+  generateSpec(); // existing preview function
+}
+
+function spDeleteSpec(id) {
+  DB_specs_registry.delete(id);
+  spRenderList();
+}
+
+function spRenderList() {
+  const searchEl = document.getElementById('sp-search');
+  const search   = searchEl ? searchEl.value.toLowerCase() : '';
+  let all = DB_specs_registry.all();
+  if (search) {
+    all = all.filter(s =>
+      (s.contractNum || '').toLowerCase().includes(search) ||
+      (s.specNum     || '').toString().includes(search)
+    );
+  }
+
+  const body = document.getElementById('sp-list-body');
+  if (!body) return;
+
+  if (all.length === 0) {
+    body.innerHTML = `
+      <div style="text-align:center;padding:60px 20px;color:var(--text3)">
+        <div style="font-size:48px;margin-bottom:12px">📐</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text2);margin-bottom:6px">Реестр спецификаций пуст</div>
+        <div style="font-size:12px">Нажмите «+ Новая спецификация» чтобы создать первое приложение к договору</div>
+      </div>`;
+    return;
+  }
+
+  const sorted = [...all].sort((a, b) => {
+    const ca = a.contractNum || ''; const cb = b.contractNum || '';
+    if (ca !== cb) return ca.localeCompare(cb);
+    return (a.specNum || '0').localeCompare(b.specNum || '0', undefined, { numeric: true });
+  });
+
+  const fmtMoney = (n, cur) => {
+    const sym = { CNY:'¥', INR:'₹', USD:'$', EUR:'€', RUB:'₽' }[cur] || cur || '';
+    return `${sym}${Number(n||0).toLocaleString('ru-RU', {maximumFractionDigits:2})}`;
+  };
+
+  body.innerHTML = `
+    <table class="data-table">
+      <thead><tr>
+        <th>Договор</th>
+        <th>Приложение №</th>
+        <th>Позиций</th>
+        <th>Сумма</th>
+        <th>Incoterms</th>
+        <th>Валюта</th>
+        <th>Дата</th>
+        <th style="width:80px"></th>
+      </tr></thead>
+      <tbody>
+        ${sorted.map(s => `<tr>
+          <td style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--co-accent);cursor:pointer" onclick="spShowForm('${s.id}')">${s.contractNum || '—'}</td>
+          <td style="font-weight:600;text-align:center">№${s.specNum || '—'}</td>
+          <td style="text-align:center;color:var(--text2)">${(s.items||[]).length}</td>
+          <td style="font-weight:600;white-space:nowrap">${fmtMoney(s.total, s.currency)}</td>
+          <td><span style="background:var(--co-accent-light);color:var(--co-accent);padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600">${s.inco || '—'}</span></td>
+          <td style="color:var(--text2)">${s.currency || '—'}</td>
+          <td style="white-space:nowrap;color:var(--text2)">${s.updatedAt ? s.updatedAt.split('-').reverse().join('.') : '—'}</td>
+          <td style="white-space:nowrap;text-align:center">
+            <button onclick="spShowForm('${s.id}')" title="Редактировать"
+              style="background:none;border:none;cursor:pointer;font-size:14px;padding:4px 6px;color:var(--text2)">✏️</button>
+            <button onclick="spDeleteSpec('${s.id}')" title="Удалить"
+              style="background:none;border:none;cursor:pointer;font-size:14px;padding:4px 6px;color:var(--text3)">🗑</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div style="margin-top:10px;font-size:11px;color:var(--text3)">Всего спецификаций: ${sorted.length}</div>`;
 }
 
 // ── SPEC PREVIEW ──
@@ -14549,6 +14778,7 @@ const DB_shipments_tracking = vedTable('shipments_tracking');
 const DB_shipment_budget = vedTable('shipment_budget');
 
 const DB_contracts             = vedTable('contracts_registry');
+const DB_specs_registry        = vedTable('specs_registry');
 
 const DB_customs_declarations      = vedTable('customs_declarations');
 const DB_customs_declaration_items = vedTable('customs_declaration_items');
