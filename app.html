@@ -9661,18 +9661,20 @@ const REQUIRED_DOCS = [
 let shipments = [];
 
 function openNewShipmentModal() {
-  // render docs list grouped by category
+  // render docs list grouped by category — simple block layout, no flex issues
   document.getElementById('docs-checklist').innerHTML = SHP_DOC_GROUPS.map(group => {
     const rows = group.docs.map(def =>
-      `<label style="display:flex;align-items:center;gap:10px;font-size:12px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background 0.1s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-        <input type="checkbox" id="doc-${def.id}" style="accent-color:var(--co-accent);flex-shrink:0">
-        <span style="font-size:14px;flex-shrink:0">${def.icon}</span>
-        <span style="flex:1">${def.name}</span>
-        ${def.required ? '<span style="font-size:9px;color:var(--co-accent);font-family:\'JetBrains Mono\',monospace;font-weight:700">ОБЯ</span>' : ''}
-      </label>`
+      `<div style="padding:5px 0;border-bottom:1px solid var(--border)">
+        <label style="display:block;cursor:pointer;font-size:12px;color:var(--text)">
+          <input type="checkbox" id="doc-${def.id}" style="accent-color:var(--co-accent);margin-right:8px;vertical-align:middle">
+          <span style="vertical-align:middle;margin-right:6px">${def.icon}</span>
+          <span style="vertical-align:middle">${def.name}</span>
+          ${def.required ? '<span style="font-size:9px;color:var(--co-accent);font-family:\'JetBrains Mono\',monospace;font-weight:700;margin-left:6px">●</span>' : ''}
+        </label>
+      </div>`
     ).join('');
-    return `<div style="margin-bottom:10px">
-      <div style="font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:var(--text3);padding:6px 8px 4px;border-bottom:1px solid var(--border);margin-bottom:4px">${group.label}</div>
+    return `<div style="margin-bottom:14px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:var(--text3);padding:4px 0 6px;margin-bottom:4px;font-weight:700">${group.label}</div>
       ${rows}
     </div>`;
   }).join('');
@@ -9851,59 +9853,73 @@ function renderDocPackage(s) {
 function showDetail(id) {
   // id may be number (from onclick attr) or string (from DB) — use loose equality
   const s = shipments.find(x => x.id == id);
-  if (!s) return;
+  if (!s) { console.warn('[showDetail] shipment not found for id', id, shipments.map(x=>x.id)); return; }
+
+  // Normalize field names: DB uses snake_case, old format uses camelCase
+  if (s.current_stage !== undefined && s.currentStage === undefined) s.currentStage = s.current_stage;
+  if (s.shipment_number && !s.po) s.po = s.shipment_number;
+  if (!s.events) s.events = [];
+  if (!s.docs) s.docs = [];
+
   const detailEl = document.getElementById('shipment-detail');
   const contentEl = document.getElementById('detail-content');
-  // po / shipment_number / cargo / items[0] — handle both old and new format
-  const poLabel = s.po || s.shipment_number || '—';
+  if (!detailEl || !contentEl) { console.warn('[showDetail] detail elements not found'); return; }
+
+  const poLabel = s.po || '—';
   const cargoLabel = s.cargo || (s.items && s.items[0] ? s.items[0].name : '') || s.contract_id || '';
   document.getElementById('detail-title').textContent = poLabel + (cargoLabel ? ' · ' + cargoLabel : '');
 
-  if (!s.docs) s.docs = [];
-  const docsReceived = s.docs.filter(d => d.received).length;
+  const stage = typeof s.currentStage === 'number' ? s.currentStage : -1;
+  const canAdvance = stage >= 0 && stage < PIPE_STAGES.length - 1;
+  const nextStageLabel = canAdvance ? PIPE_STAGES[stage + 1].label.replace('\n',' ') : '';
 
-  contentEl.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
-      <div>
-        <div class="block-title" style="margin-bottom:12px">Добавить событие</div>
-        <div class="update-form" style="margin:0">
-          <div class="field" style="margin-bottom:10px">
-            <label>Событие</label>
-            <input id="new-event-text-${id}" placeholder="Например: Груз прошёл экспортную таможню" style="width:100%">
-          </div>
-          <div class="field" style="margin-bottom:10px">
-            <label>Примечание</label>
-            <input id="new-event-note-${id}" placeholder="Номер документа, комментарий..." style="width:100%">
-          </div>
-          <button class="gen-btn" onclick="addEvent(${id})" style="margin-top:4px;padding:10px 20px">+ Добавить</button>
-          ${s.currentStage < PIPE_STAGES.length - 1 ? `
-          <button class="gen-btn secondary" onclick="advanceStage(${id})" style="margin-top:4px;padding:10px 16px">
-            → Следующий этап: ${PIPE_STAGES[s.currentStage + 1].label.replace('\n',' ')}
-          </button>` : `<div style="color:#2e7d32;font-family:'IBM Plex Mono',monospace;font-size:11px;margin-top:8px">✓ Поставка завершена</div>`}
-        </div>
-      </div>
-      <div>${renderDocPackage(s)}</div>
-    </div>
-
-    <div class="block-title" style="margin-bottom:12px">История событий</div>
-    <div class="event-log" style="padding:0;max-height:320px;overflow-y:auto">
-      ${s.events.length === 0 ? '<div style="color:var(--text3);font-size:12px;padding:12px 0">Нет событий</div>' :
-        s.events.map(e => `
-          <div class="event-row">
-            <div class="event-date">${e.date}</div>
-            <div class="event-icon">${e.icon}</div>
-            <div class="event-text">
-              <b>${e.text}</b>
-              ${e.note ? `<div class="event-note">${e.note}</div>` : ''}
+  try {
+    contentEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+        <div>
+          <div class="block-title" style="margin-bottom:12px">Добавить событие</div>
+          <div class="update-form" style="margin:0">
+            <div class="field" style="margin-bottom:10px">
+              <label>Событие</label>
+              <input id="new-event-text-${id}" placeholder="Например: Груз прошёл экспортную таможню" style="width:100%">
             </div>
+            <div class="field" style="margin-bottom:10px">
+              <label>Примечание</label>
+              <input id="new-event-note-${id}" placeholder="Номер документа, комментарий..." style="width:100%">
+            </div>
+            <button class="gen-btn" onclick="addEvent(${id})" style="margin-top:4px;padding:10px 20px">+ Добавить</button>
+            ${canAdvance ? `
+            <button class="gen-btn secondary" onclick="advanceStage(${id})" style="margin-top:4px;padding:10px 16px">
+              → Следующий этап: ${nextStageLabel}
+            </button>` : `<div style="color:#2e7d32;font-family:'IBM Plex Mono',monospace;font-size:11px;margin-top:8px">✓ Поставка завершена</div>`}
           </div>
-        `).join('')
-      }
-    </div>
-  `;
+        </div>
+        <div>${renderDocPackage(s)}</div>
+      </div>
+
+      <div class="block-title" style="margin-bottom:12px">История событий</div>
+      <div class="event-log" style="padding:0;max-height:320px;overflow-y:auto">
+        ${s.events.length === 0 ? '<div style="color:var(--text3);font-size:12px;padding:12px 0">Нет событий</div>' :
+          s.events.map(e => `
+            <div class="event-row">
+              <div class="event-date">${e.date || ''}</div>
+              <div class="event-icon">${e.icon || '●'}</div>
+              <div class="event-text">
+                <b>${e.text || ''}</b>
+                ${e.note ? `<div class="event-note">${e.note}</div>` : ''}
+              </div>
+            </div>
+          `).join('')
+        }
+      </div>
+    `;
+  } catch(err) {
+    console.error('[showDetail] template error:', err);
+    contentEl.innerHTML = '<div style="color:red;padding:12px">Ошибка отображения: ' + err.message + '</div>';
+  }
 
   detailEl.style.display = 'block';
-  setTimeout(() => detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  try { setTimeout(() => detailEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80); } catch(e) {}
 }
 
 function closeDetail() {
@@ -9913,12 +9929,15 @@ function closeDetail() {
 }
 
 function getShipmentStatus(s) {
-  if (s.currentStage >= PIPE_STAGES.length - 1) return { label: 'Завершена', cls: 'completed' };
-  // check overdue
+  const stage = typeof s.currentStage === 'number' ? s.currentStage : -1;
+  if (stage >= PIPE_STAGES.length - 1) return { label: 'Завершена', cls: 'completed' };
+  // check overdue — support both dates.arrival (old) and dates.eta (new DB)
   const today = new Date(); today.setHours(0,0,0,0);
-  const eta = s.dates.arrival ? new Date(s.dates.arrival) : null;
-  if (eta && eta < today && s.currentStage < 6) return { label: 'Просрочена', cls: 'overdue' };
-  if (s.currentStage === 0) return { label: 'Ожидание', cls: 'pending' };
+  const etaStr = (s.dates && (s.dates.arrival || s.dates.eta)) || '';
+  const eta = etaStr ? new Date(etaStr) : null;
+  if (eta && eta < today && stage < 6) return { label: 'Просрочена', cls: 'overdue' };
+  if (stage === 0) return { label: 'Ожидание', cls: 'pending' };
+  if (stage < 0) return { label: 'В процессе', cls: 'in-progress' };
   return { label: 'В процессе', cls: 'in-progress' };
 }
 
@@ -9944,8 +9963,14 @@ function renderShipments() {
   if (summary) summary.textContent = `${filtered.length} поставок · ${active} активных${shipments.length !== filtered.length ? ' (фильтр)' : ''}`;
 
   list.innerHTML = filtered.map(s => {
+    // Normalize DB snake_case → camelCase
+    if (s.current_stage !== undefined && s.currentStage === undefined) s.currentStage = s.current_stage;
+    if (s.shipment_number && !s.po) s.po = s.shipment_number;
+    if (!s.docs) s.docs = [];
+    if (!s.events) s.events = [];
+
     const status = getShipmentStatus(s);
-    const pct = Math.round((s.currentStage / (PIPE_STAGES.length - 1)) * 100);
+    const pct = typeof s.currentStage === 'number' ? Math.round((s.currentStage / (PIPE_STAGES.length - 1)) * 100) : 0;
     const docsOk = s.docs.filter(d => d.received).length;
 
     // Company badge
