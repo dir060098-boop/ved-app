@@ -11,6 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   /* ════════════════════════════════════════
      REDESIGN — Corporate Light / SAP Fiori
@@ -957,6 +958,21 @@
   .event-text b { font-weight: 600; color: var(--text); }
   .event-note { color: var(--text3); font-size: 11px; margin-top: 2px; }
 
+  /* ── Яндекс Диск / Document scans ── */
+  .yd-status-bar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); font-size:12px; margin-bottom:16px; }
+  .yd-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .yd-dot.ok { background:#2e7d32; }
+  .yd-dot.err { background:#D64545; }
+  .yd-dot.off { background:#9ca3af; }
+  .yd-upload-btn { display:inline-flex; align-items:center; gap:5px; padding:4px 10px; font-size:11px; border:1px dashed var(--border); border-radius:5px; background:transparent; cursor:pointer; color:var(--text3); transition:all 0.15s; }
+  .yd-upload-btn:hover { border-color:var(--co-accent); color:var(--co-accent); background:var(--co-accent-light); }
+  .yd-file-chip { display:inline-flex; align-items:center; gap:5px; padding:3px 8px; font-size:11px; border-radius:5px; background:rgba(31,122,99,0.08); border:1px solid rgba(31,122,99,0.2); color:var(--text2); max-width:180px; }
+  .yd-file-chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .yd-file-chip a { color:var(--co-accent); text-decoration:none; font-size:10px; flex-shrink:0; }
+  .yd-file-chip button { background:none; border:none; cursor:pointer; padding:0; color:var(--text3); font-size:10px; flex-shrink:0; line-height:1; }
+  .yd-pkg-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; background:rgba(31,122,99,0.08); border:1.5px solid rgba(31,122,99,0.25); border-radius:7px; font-size:12px; font-weight:600; color:var(--co-accent); cursor:pointer; transition:all 0.15s; }
+  .yd-pkg-btn:hover { background:rgba(31,122,99,0.15); }
+
   .doc-tag {
     display: inline-flex; align-items: center; gap: 4px;
     padding: 3px 9px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
@@ -968,9 +984,9 @@
 
   /* ── DOC STATUS BADGES ── */
   .doc-pkg-row {
-    display: flex; align-items: center; gap: 10px; padding: 7px 10px;
-    border-radius: 8px; cursor: pointer; transition: background 0.12s;
-    border: 1px solid transparent;
+    display: flex; align-items: center; gap: 6px; padding: 7px 10px;
+    border-radius: 8px; transition: background 0.12s;
+    border: 1px solid transparent; flex-wrap: wrap;
   }
   .doc-pkg-row:hover { background: var(--surface2); border-color: var(--border); }
   .doc-pkg-icon { font-size: 15px; width: 22px; text-align: center; flex-shrink: 0; }
@@ -6025,6 +6041,46 @@
       <div style="margin-top:16px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text3);font-family:'Fira Code',monospace">
         ⓘ Пользователи хранятся в браузере (localStorage). Для общего использования — разверните приложение на сервере.
       </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:28px 0">
+
+      <!-- ── ЯНДЕКС ДИСК ── -->
+      <div class="block-title" style="margin-bottom:6px">☁️ Яндекс Диск — хранилище сканов</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:18px">Сканы документов по каждой поставке сохраняются в Яндекс Диске. Все сотрудники работают с одним корпоративным аккаунтом.</div>
+
+      <div id="yd-status-bar" class="yd-status-bar">
+        <div class="yd-dot off" id="yd-dot"></div>
+        <div style="flex:1">
+          <span id="yd-status-text" style="color:var(--text2)">Не подключено</span>
+          <span id="yd-account-text" style="color:var(--text3);margin-left:8px;font-size:11px"></span>
+        </div>
+        <button class="gen-btn secondary" onclick="ydDisconnect()" id="yd-disconnect-btn" style="display:none;margin:0;padding:5px 12px;font-size:11px">✕ Отключить</button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+        <div class="field" style="margin:0">
+          <label>Client ID приложения Яндекс OAuth</label>
+          <input id="yd-client-id" placeholder="Вставьте Client ID из oauth.yandex.ru" style="font-family:'JetBrains Mono',monospace;font-size:12px"
+            oninput="try{localStorage.setItem('ved_yd_client_id',this.value)}catch(e){}">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Папка на Яндекс Диске</label>
+          <input id="yd-folder" value="ВЭД Система" placeholder="ВЭД Система" style="font-family:'JetBrains Mono',monospace;font-size:12px"
+            oninput="try{localStorage.setItem('ved_yd_folder',this.value)}catch(e){}">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="gen-btn" onclick="ydConnect()" style="margin:0;padding:9px 20px">🔑 Подключить Яндекс Диск</button>
+        <button class="gen-btn secondary" onclick="ydCheckStatus()" style="margin:0;padding:9px 16px">↻ Проверить подключение</button>
+      </div>
+      <div style="margin-top:12px;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text3);line-height:1.7">
+        <b style="color:var(--text2)">Инструкция по подключению:</b><br>
+        1. Создайте OAuth-приложение на <a href="https://oauth.yandex.ru" target="_blank" style="color:var(--co-accent)">oauth.yandex.ru</a> (права: <code>cloud_api:disk.read</code> + <code>cloud_api:disk.write</code>, тип — «Веб-сервисы», Redirect URI — URL этого приложения)<br>
+        2. Скопируйте <b>Client ID</b> и вставьте выше<br>
+        3. Нажмите «Подключить Яндекс Диск» → откроется страница авторизации Яндекса → войдите корпоративным аккаунтом → разрешите доступ<br>
+        4. Токен сохранится автоматически — все сотрудники смогут загружать и смотреть сканы
+      </div>
     </div>
 
     <!-- CUSTOMS CALCULATOR -->
@@ -9988,10 +10044,28 @@ function renderDocPackage(s) {
       }
       if (!doc.status) doc.status = doc.received ? 'received' : 'none';
       const st = DOC_STATUS_CYCLE[doc.status] || DOC_STATUS_CYCLE.none;
-      return '<div class="doc-pkg-row" onclick="toggleDoc(\'' + s.id + '\',\'' + def.id + '\')">' +
+      // Build file chips for attached scans
+      const filesHtml = (doc.files || []).map((f, fi) =>
+        `<div class="yd-file-chip" title="${f.name}">` +
+        `<span>${f.name}</span>` +
+        `<a href="javascript:void(0)" onclick="event.stopPropagation();ydOpenFile('${f.path.replace(/'/g,"\\'")}')" title="Открыть">👁</a>` +
+        `<button onclick="event.stopPropagation();ydRemoveFile('${s.id}','${def.id}',${fi})" title="Удалить ссылку">✕</button>` +
+        `</div>`
+      ).join('');
+      const hasYd = !!ydToken();
+      const uploadBtn = hasYd
+        ? `<div class="yd-upload-wrap" style="display:inline-block" onclick="event.stopPropagation()">` +
+          `<label class="yd-upload-btn" title="Загрузить скан на Яндекс Диск">` +
+          `📎 Скан<input type="file" accept=".pdf,.jpg,.jpeg,.png,.tiff" style="display:none" onchange="ydHandleUpload(this,'${s.id}','${def.id}')"></label>` +
+          `</div>`
+        : '';
+      return '<div class="doc-pkg-row">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer" onclick="toggleDoc(\'' + s.id + '\',\'' + def.id + '\')">' +
         '<div class="doc-pkg-icon">' + def.icon + '</div>' +
         '<div class="doc-pkg-name' + (def.required ? ' required-doc' : '') + '">' + def.name + '</div>' +
         '<div class="doc-status-btn ' + st.cls + '">' + st.icon + ' ' + st.label + '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-left:6px">' + filesHtml + uploadBtn + '</div>' +
         '</div>';
     }).join('');
 
@@ -10012,10 +10086,18 @@ function renderDocPackage(s) {
     return doc && (doc.status === 'received' || doc.status === 'submitted');
   }).length, 0);
 
+  // Count total attached files
+  const totalFiles = (s.docs || []).reduce((a, d) => a + (d.files ? d.files.length : 0), 0);
+  const hasYd = !!ydToken();
+  const pkgBtn = hasYd
+    ? `<button id="yd-pkg-btn-${s.id}" class="yd-pkg-btn" onclick="downloadCustomsPackage('${s.id}')" style="margin-top:12px">` +
+      `📦 Скачать таможенный пакет${totalFiles ? ' (' + totalFiles + ' файлов)' : ''}</button>`
+    : `<div style="margin-top:10px;font-size:11px;color:var(--text3)">☁️ Подключите <b>Яндекс Диск</b> в Настройках для загрузки сканов и скачивания таможенного пакета</div>`;
+
   return '<div class="block-title" style="margin-bottom:10px">Пакет документов (' + totalReceived + '/' + totalDocs + ' получено)</div>' +
     '<div style="font-size:10px;color:var(--text3);margin-bottom:10px;font-family:\'JetBrains Mono\',monospace">' +
     'Нажмите на статус для переключения: ⬜ Не получен → 📩 Запрошен → ✅ Получен → 🏛️ На таможне</div>' +
-    groupsHtml;
+    groupsHtml + pkgBtn;
 }
 
 function buildDetailHTML(s) {
@@ -10480,6 +10562,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (sCur) sCur.addEventListener('change', renderSpecTable);
   // Auth runs last — loginSuccess handles loadActiveCompany + setActiveCompany
   initAuth();
+  // Yandex Disk: load saved settings and check status
+  ydInit();
 });
 
 // ════════════════════════════════════════════
@@ -12630,6 +12714,234 @@ function bgSyncFromTracker() {
   if (!msg) msg = 'Все поставки актуальны — изменений нет.';
   alert(msg.trim());
 }
+
+// ════════════════════════════════════════════════════════════════
+// ЯНДЕКС ДИСК — хранилище сканов документов
+// ════════════════════════════════════════════════════════════════
+
+const YD_API = 'https://cloud-api.yandex.net/v1/disk';
+
+function ydToken()    { return localStorage.getItem('ved_yd_token') || ''; }
+function ydClientId() { return localStorage.getItem('ved_yd_client_id') || ''; }
+function ydFolder()   { return (localStorage.getItem('ved_yd_folder') || 'ВЭД Система').trim(); }
+
+// ── OAuth connect ──────────────────────────────────────────────
+function ydConnect() {
+  const clientId = ydClientId();
+  if (!clientId) { alert('Введите Client ID приложения Яндекс OAuth'); return; }
+  const redirectUri = encodeURIComponent(window.location.href.split('#')[0].split('?')[0]);
+  const url = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${clientId}&redirect_uri=${redirectUri}&force_confirm=yes`;
+  window.open(url, '_blank', 'width=600,height=700,noopener');
+  // Show hint for manual token paste
+  const token = prompt('После авторизации в Яндексе скопируйте значение параметра access_token из адресной строки и вставьте сюда:\n\n(или нажмите Отмена, если авторизация завершится автоматически)');
+  if (token && token.trim().length > 10) {
+    localStorage.setItem('ved_yd_token', token.trim());
+    ydCheckStatus();
+  }
+}
+
+function ydDisconnect() {
+  if (!confirm('Отключить Яндекс Диск? Загруженные файлы останутся на Диске.')) return;
+  localStorage.removeItem('ved_yd_token');
+  ydUpdateStatusUI(false, '', '');
+}
+
+// ── Check token validity ───────────────────────────────────────
+async function ydCheckStatus() {
+  const token = ydToken();
+  if (!token) { ydUpdateStatusUI(false, 'Нет токена', ''); return; }
+  try {
+    const res = await fetch(YD_API + '/', { headers: { Authorization: 'OAuth ' + token } });
+    if (res.ok) {
+      const data = await res.json();
+      const login = data.login || data.user?.login || '';
+      const used  = data.used_space ? Math.round(data.used_space / 1024 / 1024) + ' МБ' : '';
+      ydUpdateStatusUI(true, 'Подключено', login + (used ? ' · ' + used + ' использовано' : ''));
+    } else {
+      ydUpdateStatusUI(false, 'Ошибка авторизации (код ' + res.status + ')', '');
+    }
+  } catch(e) {
+    ydUpdateStatusUI(false, 'Ошибка сети: ' + e.message, '');
+  }
+}
+
+function ydUpdateStatusUI(ok, statusText, accountText) {
+  const dot  = document.getElementById('yd-dot');
+  const stTx = document.getElementById('yd-status-text');
+  const acTx = document.getElementById('yd-account-text');
+  const disBtn = document.getElementById('yd-disconnect-btn');
+  if (!dot) return;
+  dot.className = 'yd-dot ' + (ok ? 'ok' : (statusText ? 'err' : 'off'));
+  if (stTx) stTx.textContent = statusText;
+  if (acTx) acTx.textContent = accountText;
+  if (disBtn) disBtn.style.display = ok ? '' : 'none';
+}
+
+// ── Init: load saved values & check status ─────────────────────
+function ydInit() {
+  const cidEl  = document.getElementById('yd-client-id');
+  const fldEl  = document.getElementById('yd-folder');
+  if (cidEl) cidEl.value = ydClientId();
+  if (fldEl) fldEl.value = ydFolder();
+  if (ydToken()) ydCheckStatus();
+}
+
+// ── Create folder (ignore 409 = already exists) ────────────────
+async function ydMkdir(path) {
+  const token = ydToken();
+  await fetch(`${YD_API}/resources?path=${encodeURIComponent(path)}`, {
+    method: 'PUT', headers: { Authorization: 'OAuth ' + token }
+  });
+}
+
+// ── Build remote path for a shipment document ──────────────────
+function ydFilePath(shipment, docId, fileName) {
+  const co  = shipment.company || shipment.buyerPrefix || activeCompany || 'ENDV';
+  const po  = (shipment.po || shipment.id || 'unknown').replace(/[\/\\:*?"<>|]/g, '-');
+  const safeDoc  = (docId || 'doc').replace(/[\/\\:*?"<>|]/g, '-');
+  const safeFile = fileName.replace(/[\/\\:*?"<>|]/g, '-');
+  return `disk:/${ydFolder()}/${co}/${po}/${safeDoc}_${safeFile}`;
+}
+
+// ── Upload file blob to Yandex Disk ───────────────────────────
+async function ydUploadFile(shipment, docId, file) {
+  const token = ydToken();
+  if (!token) { alert('Яндекс Диск не подключён. Перейдите в Настройки → Яндекс Диск.'); return null; }
+  const remotePath = ydFilePath(shipment, docId, file.name);
+  // Ensure folder chain exists
+  await ydMkdir(`disk:/${ydFolder()}`);
+  const co = shipment.company || shipment.buyerPrefix || activeCompany || 'ENDV';
+  const po = (shipment.po || shipment.id || 'unknown').replace(/[\/\\:*?"<>|]/g, '-');
+  await ydMkdir(`disk:/${ydFolder()}/${co}`);
+  await ydMkdir(`disk:/${ydFolder()}/${co}/${po}`);
+  // Get upload URL
+  const res = await fetch(`${YD_API}/resources/upload?path=${encodeURIComponent(remotePath)}&overwrite=true`, {
+    headers: { Authorization: 'OAuth ' + token }
+  });
+  if (!res.ok) { const err = await res.json(); alert('Ошибка получения URL загрузки: ' + (err.message||res.status)); return null; }
+  const { href } = await res.json();
+  // Upload
+  const upRes = await fetch(href, { method: 'PUT', body: file });
+  if (!upRes.ok) { alert('Ошибка загрузки файла: ' + upRes.status); return null; }
+  return { path: remotePath, name: file.name, size: file.size, date: new Date().toLocaleDateString('ru-RU') };
+}
+
+// ── Get a temporary download link ─────────────────────────────
+async function ydGetLink(remotePath) {
+  const token = ydToken();
+  if (!token) return null;
+  const res = await fetch(`${YD_API}/resources/download?path=${encodeURIComponent(remotePath)}`, {
+    headers: { Authorization: 'OAuth ' + token }
+  });
+  if (!res.ok) return null;
+  const { href } = await res.json();
+  return href;
+}
+
+// ── Handle file input → upload → save to shipment doc ─────────
+async function ydHandleUpload(inputEl, shipmentId, docId) {
+  const file = inputEl.files[0];
+  if (!file) return;
+  const s = shipments.find(x => x.id == shipmentId);
+  if (!s) return;
+  // Show progress
+  const btn = inputEl.closest('.yd-upload-wrap')?.querySelector('.yd-upload-btn');
+  if (btn) { btn.textContent = '⏳ Загрузка...'; btn.disabled = true; }
+  try {
+    const fileInfo = await ydUploadFile(s, docId, file);
+    if (!fileInfo) { if (btn) { btn.textContent = '📎 Прикрепить скан'; btn.disabled = false; } return; }
+    // Save reference in doc
+    if (!s.docs) s.docs = [];
+    let doc = s.docs.find(d => d.id === docId);
+    if (!doc) { doc = { id: docId, name: docId, status: 'none', received: false }; s.docs.push(doc); }
+    if (!doc.files) doc.files = [];
+    doc.files.push(fileInfo);
+    // Log event
+    if (!s.events) s.events = [];
+    s.events.unshift({ date: new Date().toLocaleDateString('ru-RU'), icon: '📎', text: 'Скан загружен: ' + file.name, note: docId });
+    shipmentsSyncToDB(s);
+    shipmentsSave();
+    renderShipments();
+  } catch(e) {
+    alert('Ошибка загрузки: ' + e.message);
+    if (btn) { btn.textContent = '📎 Прикрепить скан'; btn.disabled = false; }
+  }
+}
+
+// ── Remove a file from a doc ───────────────────────────────────
+function ydRemoveFile(shipmentId, docId, fileIdx) {
+  const s = shipments.find(x => x.id == shipmentId);
+  if (!s) return;
+  const doc = s.docs?.find(d => d.id === docId);
+  if (!doc || !doc.files) return;
+  const f = doc.files[fileIdx];
+  if (!confirm('Удалить ссылку на файл «' + f.name + '»?\n(Файл на Яндекс Диске останется)')) return;
+  doc.files.splice(fileIdx, 1);
+  shipmentsSyncToDB(s); shipmentsSave(); renderShipments();
+}
+
+// ── Open file from Yandex Disk ─────────────────────────────────
+async function ydOpenFile(remotePath) {
+  const link = await ydGetLink(remotePath);
+  if (link) window.open(link, '_blank');
+  else alert('Не удалось получить ссылку. Проверьте подключение Яндекс Диска.');
+}
+
+// ── Download full customs package as ZIP ──────────────────────
+async function downloadCustomsPackage(shipmentId) {
+  const s = shipments.find(x => x.id == shipmentId);
+  if (!s) return;
+  const token = ydToken();
+  if (!token) { alert('Яндекс Диск не подключён. Перейдите в Настройки → Яндекс Диск.'); return; }
+  const allFiles = [];
+  (s.docs || []).forEach(doc => { (doc.files || []).forEach(f => allFiles.push({ doc, file: f })); });
+  if (!allFiles.length) { alert('К этой поставке ещё не прикреплено ни одного скана.'); return; }
+
+  const btn = document.getElementById('yd-pkg-btn-' + shipmentId);
+  if (btn) { btn.textContent = '⏳ Формирую пакет...'; btn.disabled = true; }
+
+  try {
+    const zip = new JSZip();
+    // Generate описть (inventory)
+    let opisStr = `ТАМОЖЕННЫЙ ПАКЕТ ДОКУМЕНТОВ\n`;
+    opisStr += `Поставка: ${s.po || s.id} — ${s.supplier || ''}\n`;
+    opisStr += `Товар: ${s.cargo || ''}\n`;
+    opisStr += `Сформировано: ${new Date().toLocaleDateString('ru-RU')}\n`;
+    opisStr += `\n${'─'.repeat(60)}\n\n`;
+    let n = 1;
+    for (const { doc, file } of allFiles) {
+      opisStr += `${n}. ${doc.name || doc.id} — ${file.name} (${Math.round(file.size/1024)} КБ, загружен ${file.date})\n`;
+      n++;
+    }
+    zip.file('00_Опись.txt', opisStr);
+
+    // Download each file and add to ZIP
+    for (let i = 0; i < allFiles.length; i++) {
+      const { doc, file } = allFiles[i];
+      const link = await ydGetLink(file.path);
+      if (!link) continue;
+      const res = await fetch(link);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      const num = String(i + 1).padStart(2, '0');
+      zip.file(`${num}_${file.name}`, blob);
+    }
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${s.po || s.id}_customs_package.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    alert('Ошибка формирования пакета: ' + e.message);
+  } finally {
+    if (btn) { btn.textContent = '📦 Скачать таможенный пакет'; btn.disabled = false; }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 
 function bgToggle(po) {
   const b = budgets.find(x=>x.po===po);
