@@ -9817,7 +9817,7 @@ function renderDocPackage(s) {
       }
       if (!doc.status) doc.status = doc.received ? 'received' : 'none';
       const st = DOC_STATUS_CYCLE[doc.status] || DOC_STATUS_CYCLE.none;
-      return '<div class="doc-pkg-row" onclick="toggleDoc(' + s.id + ',\'' + def.id + '\')">' +
+      return '<div class="doc-pkg-row" onclick="toggleDoc(\'' + s.id + '\',\'' + def.id + '\')">' +
         '<div class="doc-pkg-icon">' + def.icon + '</div>' +
         '<div class="doc-pkg-name' + (def.required ? ' required-doc' : '') + '">' + def.name + '</div>' +
         '<div class="doc-status-btn ' + st.cls + '">' + st.icon + ' ' + st.label + '</div>' +
@@ -9873,8 +9873,8 @@ function buildDetailHTML(s) {
             <label>Примечание</label>
             <input id="new-event-note-${id}" placeholder="Номер документа, комментарий..." style="width:100%">
           </div>
-          <button class="gen-btn" onclick="addEvent(${id})" style="margin-top:4px;padding:8px 16px">+ Добавить</button>
-          ${canAdvance ? `<button class="gen-btn secondary" onclick="advanceStage(${id})" style="margin-top:4px;padding:8px 14px">→ ${nextStageLabel}</button>` : `<div style="color:#2e7d32;font-size:11px;margin-top:8px;font-family:'IBM Plex Mono',monospace">✓ Поставка завершена</div>`}
+          <button class="gen-btn" onclick="addEvent('${id}')" style="margin-top:4px;padding:8px 16px">+ Добавить</button>
+          ${canAdvance ? `<button class="gen-btn secondary" onclick="advanceStage('${id}')" style="margin-top:4px;padding:8px 14px">→ ${nextStageLabel}</button>` : `<div style="color:#2e7d32;font-size:11px;margin-top:8px;font-family:'IBM Plex Mono',monospace">✓ Поставка завершена</div>`}
         </div>
       </div>
       <div>${renderDocPackage(s)}</div>
@@ -9921,9 +9921,9 @@ function showDetail(id) {
               <label>Примечание</label>
               <input id="new-event-note-${id}" placeholder="Номер документа, комментарий..." style="width:100%">
             </div>
-            <button class="gen-btn" onclick="addEvent(${id})" style="margin-top:4px;padding:10px 20px">+ Добавить</button>
+            <button class="gen-btn" onclick="addEvent('${id}')" style="margin-top:4px;padding:10px 20px">+ Добавить</button>
             ${canAdvance ? `
-            <button class="gen-btn secondary" onclick="advanceStage(${id})" style="margin-top:4px;padding:10px 16px">
+            <button class="gen-btn secondary" onclick="advanceStage('${id}')" style="margin-top:4px;padding:10px 16px">
               → Следующий этап: ${nextStageLabel}
             </button>` : `<div style="color:#2e7d32;font-family:'IBM Plex Mono',monospace;font-size:11px;margin-top:8px">✓ Поставка завершена</div>`}
           </div>
@@ -10025,7 +10025,7 @@ function renderShipments() {
     }).join('');
 
     return `<div class="shipment-card">
-      <div class="shipment-card-header" onclick="toggleExpand(${s.id})">
+      <div class="shipment-card-header" onclick="toggleExpand('${s.id}')">
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
           <div class="shipment-po" onclick="openContractByNum('${s.po}')" title="Открыть договор ${s.po}" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px">${s.po}</div>
           ${s.deliveryNum ? `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--co-accent-light);color:var(--co-accent);padding:2px 8px;border-radius:10px;font-weight:700">${s.deliveryNum}</span>` : ''}
