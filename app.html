@@ -6076,16 +6076,28 @@
         </div>
       </div>
 
+      <!-- Шаг 2: вставить токен вручную -->
+      <div id="yd-token-row" style="margin-bottom:14px">
+        <div class="field" style="margin:0 0 8px 0">
+          <label>Токен доступа <span style="color:var(--text3);font-weight:400">(получите по кнопке ниже, затем вставьте сюда)</span></label>
+          <div style="display:flex;gap:8px">
+            <input id="yd-token-input" type="password" placeholder="y0_AgAAAA..." style="font-family:'JetBrains Mono',monospace;font-size:12px;flex:1"
+              oninput="ydTokenInputChanged(this.value)">
+            <button class="gen-btn secondary" onclick="ydToggleTokenVisible()" style="margin:0;padding:8px 12px;font-size:12px" title="Показать/скрыть">👁</button>
+          </div>
+        </div>
+      </div>
+
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button class="gen-btn" onclick="ydConnect()" style="margin:0;padding:9px 20px">🔑 Подключить Яндекс Диск</button>
+        <button class="gen-btn" onclick="ydConnect()" style="margin:0;padding:9px 20px">🔑 Получить токен</button>
         <button class="gen-btn secondary" onclick="ydCheckStatus()" style="margin:0;padding:9px 16px">↻ Проверить подключение</button>
       </div>
-      <div style="margin-top:12px;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text3);line-height:1.7">
-        <b style="color:var(--text2)">Инструкция по подключению:</b><br>
-        1. Создайте OAuth-приложение на <a href="https://oauth.yandex.ru" target="_blank" style="color:var(--co-accent)">oauth.yandex.ru</a> (права: <code>cloud_api:disk.read</code> + <code>cloud_api:disk.write</code>, тип — «Веб-сервисы», Redirect URI — URL этого приложения)<br>
-        2. Скопируйте <b>Client ID</b> и вставьте выше<br>
-        3. Нажмите «Подключить Яндекс Диск» → откроется страница авторизации Яндекса → войдите корпоративным аккаунтом → разрешите доступ<br>
-        4. Токен сохранится автоматически — все сотрудники смогут загружать и смотреть сканы
+      <div style="margin-top:12px;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text3);line-height:1.8">
+        <b style="color:var(--text2)">Как подключить:</b><br>
+        1. Нажмите <b>«🔑 Получить токен»</b> — откроется окно авторизации Яндекса<br>
+        2. Войдите в корпоративный аккаунт и нажмите <b>«Разрешить»</b><br>
+        3. Яндекс покажет токен на экране — <b>скопируйте его</b><br>
+        4. Вернитесь сюда, вставьте токен в поле выше и нажмите <b>«↻ Проверить подключение»</b>
       </div>
     </div>
 
@@ -12757,9 +12769,23 @@ function ydConnect() {
   }, 1500);
 }
 
+function ydTokenInputChanged(val) {
+  const clean = val.trim().replace(/^.*access_token=/,'').split('&')[0];
+  if (clean.length > 10) {
+    localStorage.setItem('ved_yd_token', clean);
+  }
+}
+
+function ydToggleTokenVisible() {
+  const el = document.getElementById('yd-token-input');
+  if (el) el.type = el.type === 'password' ? 'text' : 'password';
+}
+
 function ydDisconnect() {
   if (!confirm('Отключить Яндекс Диск? Загруженные файлы останутся на Диске.')) return;
   localStorage.removeItem('ved_yd_token');
+  const inp = document.getElementById('yd-token-input');
+  if (inp) inp.value = '';
   ydUpdateStatusUI(false, '', '');
 }
 
@@ -12798,8 +12824,10 @@ function ydUpdateStatusUI(ok, statusText, accountText) {
 function ydInit() {
   const cidEl  = document.getElementById('yd-client-id');
   const fldEl  = document.getElementById('yd-folder');
+  const tokEl  = document.getElementById('yd-token-input');
   if (cidEl) cidEl.value = ydClientId();
   if (fldEl) fldEl.value = ydFolder();
+  if (tokEl && ydToken()) tokEl.value = ydToken();
   if (ydToken()) ydCheckStatus();
 }
 
