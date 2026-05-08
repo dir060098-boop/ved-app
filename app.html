@@ -9863,7 +9863,11 @@ function advanceStage(id) {
     text: 'Этап завершён: ' + stage.label.replace('\n', ' '),
     note: ''
   });
-  renderShipments(); // accordion in card re-renders with updated stage
+  // Also update current_stage for DB snake_case compatibility
+  s.current_stage = s.currentStage;
+  shipmentsSyncToDB(s);
+  shipmentsSave();
+  renderShipments();
 }
 
 function addEvent(id) {
@@ -9878,16 +9882,35 @@ function addEvent(id) {
     text: textEl.value.trim(),
     note: noteEl ? noteEl.value.trim() : ''
   });
-  renderShipments(); // accordion in card re-renders with new event
+  shipmentsSyncToDB(s);
+  shipmentsSave();
+  renderShipments();
 }
 
 function toggleDoc(id, docId) {
   const s = shipments.find(x => x.id == id);
   if (!s) return;
+  if (!s.docs) s.docs = [];
   // Find doc by id (new) or index (legacy)
   let doc = typeof docId === 'string'
     ? s.docs.find(d => d.id === docId)
     : s.docs[docId];
+  if (!doc && typeof docId === 'string') {
+    // Legacy: try partial English name match (e.g. "Invoice" in "Invoice / Счёт-фактура")
+    const def = SHP_DOCS_LIST.find(d => d.id === docId);
+    if (def) {
+      const prefix = def.name.split(' / ')[0].toLowerCase().trim();
+      doc = s.docs.find(d => !d.id && d.name && d.name.toLowerCase().startsWith(prefix));
+      if (doc) {
+        doc.id = docId; // fix legacy doc — assign proper id
+        if (!doc.icon) doc.icon = def.icon;
+      } else {
+        // Create new doc entry and add to s.docs permanently
+        doc = { id: docId, name: def.name, icon: def.icon, status: 'none', received: false };
+        s.docs.push(doc);
+      }
+    }
+  }
   if (!doc) return;
   // Migrate legacy boolean
   if (doc.status === undefined) doc.status = doc.received ? 'received' : 'none';
@@ -9919,10 +9942,30 @@ function toggleExpand(id) {
 }
 
 function renderDocPackage(s) {
-  // Migrate docs to new format if needed
-  if (!s.docs || !s.docs.length) {
-    s.docs = SHP_DOCS_LIST.map(d => ({ id: d.id, name: d.name, icon: d.icon, status: 'none', received: false }));
-  }
+  if (!s.docs) s.docs = [];
+  // Full migration: ensure every SHP_DOCS_LIST def is represented in s.docs with proper id
+  SHP_DOC_GROUPS.forEach(group => {
+    group.docs.forEach(def => {
+      let doc = s.docs.find(d => d.id === def.id);
+      if (!doc) {
+        // Try exact name match
+        doc = s.docs.find(d => !d.id && d.name === def.name);
+        if (!doc) {
+          // Try partial English prefix match (handles "Invoice / Счёт-фактура" → id "invoice")
+          const prefix = def.name.split(' / ')[0].toLowerCase().trim();
+          doc = s.docs.find(d => !d.id && d.name && d.name.toLowerCase().startsWith(prefix));
+        }
+        if (doc) {
+          doc.id = def.id; // fix legacy doc
+          if (!doc.icon) doc.icon = def.icon;
+          if (!doc.status) doc.status = doc.received ? 'received' : 'none';
+        } else {
+          // Add missing doc to s.docs
+          s.docs.push({ id: def.id, name: def.name, icon: def.icon, status: 'none', received: false });
+        }
+      }
+    });
+  });
   // Build lookup by id
   const docMap = {};
   s.docs.forEach(d => { if (d.id) docMap[d.id] = d; });
@@ -9931,10 +9974,8 @@ function renderDocPackage(s) {
     const rowsHtml = group.docs.map(def => {
       let doc = docMap[def.id];
       if (!doc) {
-        // Try to find by name (legacy) or create new
-        doc = s.docs.find(d => d.name === def.name) || { id: def.id, name: def.name, status: 'none', received: false };
-        if (!doc.id) doc.id = def.id;
-        if (!doc.status) doc.status = doc.received ? 'received' : 'none';
+        doc = { id: def.id, name: def.name, icon: def.icon, status: 'none', received: false };
+        s.docs.push(doc);
         docMap[def.id] = doc;
       }
       if (!doc.status) doc.status = doc.received ? 'received' : 'none';
