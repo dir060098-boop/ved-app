@@ -12556,6 +12556,48 @@ function bgDelete(po) {
   bgSave(); renderBudgets();
 }
 
+function bgFillFromCurrency(po) {
+  const b = budgets.find(x => x.po === po);
+  if (!b) return;
+  const safeId = po.replace(/[^a-zA-Z0-9]/g,'_');
+  const curEl   = document.getElementById('bg-cur-' + safeId);
+  const fcEl    = document.getElementById('bg-fc-' + safeId);
+  const rateEl  = document.getElementById('bg-rate-' + safeId);
+  if (!fcEl || !rateEl) return;
+  const fc   = parseFloat(fcEl.value) || 0;
+  const rate = parseFloat(rateEl.value) || 0;
+  if (!fc || !rate) { alert('Введите сумму в валюте и курс'); return; }
+  const rubAmount = Math.round(fc * rate);
+  b.fcAmount = fc;
+  b.rate = rate;
+  b.currency = curEl ? curEl.value : 'USD';
+  b.lines['goods_invoice'].plan = rubAmount;
+  bgSave();
+  renderBudgets();
+}
+
+function bgAutoCalcDuty(po) {
+  const b = budgets.find(x => x.po === po);
+  if (!b) return;
+  const safeId = po.replace(/[^a-zA-Z0-9]/g,'_');
+  const dutyRateEl = document.getElementById('bg-duty-rate-' + safeId);
+  const vatRateEl  = document.getElementById('bg-vat-rate-' + safeId);
+  const dutyRate = parseFloat(dutyRateEl?.value) || 0;
+  const vatRate  = parseFloat(vatRateEl?.value) || 20;
+  if (!dutyRate) { alert('Введите ставку пошлины (%)'); return; }
+  // Base: sum of goods plan
+  const goodsBase = (b.lines['goods_invoice']?.plan||0) + (b.lines['goods_addon']?.plan||0);
+  if (!goodsBase) { alert('Сначала укажите стоимость товара в разделе «Стоимость товара»'); return; }
+  const duty    = Math.round(goodsBase * dutyRate / 100);
+  const vat     = Math.round((goodsBase + duty) * vatRate / 100);
+  b.dutyRate = dutyRate;
+  b.vatRate  = vatRate;
+  b.lines['cus_duty'].plan = duty;
+  b.lines['cus_vat'].plan  = vat;
+  bgSave();
+  renderBudgets();
+}
+
 function bgUpdateLine(po, lineId, field, value) {
   const b = budgets.find(x=>x.po===po);
   if (!b || !b.lines[lineId]) return;
@@ -12684,10 +12726,67 @@ function renderBudgets() {
     const cls = bgDeltaClass(c.delta);
     const factPct = c.totalPlan > 0 ? Math.min(c.totalFact/c.totalPlan*100, 150) : 0;
     const barColor = c.delta > 0.01*c.totalPlan ? 'var(--red)' : c.delta < -0.01*c.totalPlan ? 'var(--green)' : 'var(--teal)';
+    const totalRef = c.totalFact || c.totalPlan;
 
-    // Build rows per group
+    // ── Breakdown stacked bar ─────────────────────────────────────────
+    const BG_COLORS = { goods:'#1F7A63', logistics:'#2563EB', customs:'#C0392B', other:'#B8860B' };
+    const BG_LABELS = { goods:'Товар', logistics:'Логистика', customs:'Таможня', other:'Прочее' };
+    const breakdownBar = totalRef > 0 ? (() => {
+      const segments = Object.keys(BG_LINES).map(g => {
+        const amt = c.groups[g].fact || c.groups[g].plan;
+        const pct = amt / totalRef * 100;
+        return { g, amt, pct, color: BG_COLORS[g], label: BG_LABELS[g] };
+      }).filter(s => s.pct > 0.3);
+      return `<div style="margin-bottom:20px">
+        <div style="display:flex;align-items:stretch;height:32px;border-radius:8px;overflow:hidden;margin-bottom:8px">
+          ${segments.map(s => `<div style="width:${s.pct}%;background:${s.color};display:flex;align-items:center;justify-content:center;font-size:10px;color:rgba(255,255,255,0.95);font-family:'Fira Code',monospace;font-weight:700;white-space:nowrap;overflow:hidden;transition:width 0.4s" title="${s.label}: ${bgFmt(s.amt)} ₽ · ${s.pct.toFixed(1)}%">${s.pct>=9?s.pct.toFixed(0)+'%':''}</div>`).join('')}
+        </div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          ${segments.map(s => `<div style="display:flex;align-items:center;gap:5px;font-size:11px">
+            <div style="width:10px;height:10px;border-radius:2px;background:${s.color}"></div>
+            <span style="color:var(--text3);font-family:'Fira Code',monospace">${s.label}</span>
+            <span style="font-weight:700;font-family:'Fira Code',monospace;color:var(--text)">${s.pct.toFixed(1)}%</span>
+            <span style="color:var(--text3);font-size:10px">${bgFmt(s.amt)} ₽</span>
+          </div>`).join('')}
+        </div>
+      </div>`;
+    })() : '';
+
+    // ── Build rows per group ──────────────────────────────────────────
     const groupsHtml = Object.keys(BG_LINES).map(g => {
       const grp = BG_GROUP_LABELS[g];
+      const gAmt = c.groups[g].fact || c.groups[g].plan;
+      const gPct = totalRef > 0 ? (gAmt/totalRef*100).toFixed(1) : null;
+
+      // Extra helper widget per group
+      let helperHtml = '';
+      if (g === 'goods') {
+        const cur = b.currency || 'USD'; const rate = b.rate || '';
+        helperHtml = `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">ВАЛЮТА</div>
+            <select id="bg-cur-${safeId}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px">
+              ${['USD','EUR','CNY','INR','GBP'].map(c2=>`<option${cur===c2?' selected':''}>${c2}</option>`).join('')}
+            </select></div>
+          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">СУММА В ВАЛЮТЕ</div>
+            <input type="number" id="bg-fc-${safeId}" value="${b.fcAmount||''}" placeholder="0.00" style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
+          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">КУРС ₽</div>
+            <input type="number" id="bg-rate-${safeId}" value="${rate}" placeholder="90.00" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
+          <button onclick="bgFillFromCurrency('${b.po}')" style="padding:6px 14px;background:var(--co-accent);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">→ Заполнить ₽</button>
+          ${b.fcAmount&&b.rate ? `<div style="font-family:'Fira Code',monospace;font-size:11px;color:var(--co-accent);padding-bottom:2px">= ${bgFmt(b.fcAmount*b.rate)} ₽</div>` : ''}
+        </div>`;
+      }
+      if (g === 'customs') {
+        const goodsVal = (b.lines['goods_invoice']?.plan||0) + (b.lines['goods_addon']?.plan||0);
+        helperHtml = `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">СТАВКА ПОШЛИНЫ %</div>
+            <input type="number" id="bg-duty-rate-${safeId}" value="${b.dutyRate||''}" placeholder="10" style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
+          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">СТАВКА НДС %</div>
+            <input type="number" id="bg-vat-rate-${safeId}" value="${b.vatRate||20}" placeholder="20" style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
+          <button onclick="bgAutoCalcDuty('${b.po}')" style="padding:6px 14px;background:var(--rust);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">⚡ Рассчитать пошлину и НДС</button>
+          ${goodsVal ? `<div style="font-family:'Fira Code',monospace;font-size:10px;color:var(--text3);padding-bottom:2px">База: ${bgFmt(goodsVal)} ₽</div>` : ''}
+        </div>`;
+      }
+
       const linesHtml = BG_LINES[g].map(l => {
         const v = b.lines[l.id] || {plan:0,fact:0};
         const d = (v.fact||0) - (v.plan||0);
@@ -12701,7 +12800,8 @@ function renderBudgets() {
         </div>`;
       }).join('');
 
-      return `<div class="bg-section-title" style="color:${grp.color}">${grp.title}</div>
+      return `<div class="bg-section-title" style="color:${BG_COLORS[g]}">${grp.title}${gPct ? `<span style="font-size:10px;font-weight:400;margin-left:8px;opacity:0.7">${gPct}%</span>` : ''}</div>
+        ${helperHtml}
         <div class="bg-row header">
           <div class="bg-cell">Статья расходов</div>
           <div class="bg-cell right">План, ₽</div>
@@ -12724,7 +12824,7 @@ function renderBudgets() {
         <div class="bg-card-supplier">${b.supplier}${b.cargo?' · <span style="color:var(--text3)">'+b.cargo+'</span>':''}</div>
         <div style="display:flex;align-items:center;gap:12px">
           ${c.totalPlan ? `<div style="text-align:right;font-family:'Fira Code',monospace;font-size:11px;color:var(--text3)">план: ${bgFmt(c.totalPlan)} ₽</div>` : ''}
-          ${c.totalFact ? `<div style="text-align:right;font-family:'Fira Code',monospace;font-size:11px;color:var(--navy);font-weight:600">факт: ${bgFmt(c.totalFact)} ₽</div>` : ''}
+          ${c.totalFact ? `<div style="text-align:right;font-family:'Fira Code',monospace;font-size:13px;color:var(--navy);font-weight:700">факт: ${bgFmt(c.totalFact)} ₽</div>` : ''}
           <div class="bg-deviation-pill ${cls}" id="bg-pill-${safeId}">
             ${cls==='zero'?'Нет данных':cls==='over'?'▲ +'+Math.abs(c.deltaPct).toFixed(1)+'%':'▼ '+Math.abs(c.deltaPct).toFixed(1)+'%'}
           </div>
@@ -12733,10 +12833,10 @@ function renderBudgets() {
       </div>
 
       <div class="bg-card-body">
-        <!-- Qty for COGS calc -->
+        <!-- Qty + delete row -->
         <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap">
           <div class="field" style="margin:0;min-width:160px">
-            <label>Количество товара (для расчёта себест.)</label>
+            <label>Кол-во товара (для себест. на ед.)</label>
             <input type="number" value="${b.qty||''}" placeholder="0" style="padding:8px 12px"
               onchange="bgUpdateQty('${b.po}','qty',this.value)">
           </div>
@@ -12749,22 +12849,25 @@ function renderBudgets() {
           <button class="admin-action-btn danger" onclick="bgDelete('${b.po}');event.stopPropagation()">× Удалить бюджет</button>
         </div>
 
-        <!-- Progress bar -->
-        <div style="margin-bottom:18px">
+        <!-- Breakdown stacked bar -->
+        <div id="bg-breakdown-${safeId}">${breakdownBar}</div>
+
+        <!-- Progress bar (plan vs fact) -->
+        ${c.totalPlan > 0 ? `<div style="margin-bottom:18px">
           <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Fira Code',monospace;color:var(--text3);margin-bottom:4px">
-            <span>Исполнение бюджета</span>
-            <span>${c.totalPlan>0?(factPct.toFixed(1)+'%'):'—'}</span>
+            <span>Исполнение плана</span>
+            <span>${factPct.toFixed(1)}%</span>
           </div>
           <div class="bg-bar-track">
             <div class="bg-bar-plan" style="width:100%"></div>
             <div class="bg-bar-fact" id="bg-bar-${safeId}" style="width:${Math.min(factPct,100)}%;background:${barColor}"></div>
           </div>
-        </div>
+        </div>` : ''}
 
         ${groupsHtml}
 
         <!-- Grand total -->
-        <div class="bg-row grandtotal">
+        <div class="bg-row grandtotal" style="margin-top:8px">
           <div class="bg-cell" style="font-size:14px;font-weight:700;color:white">ИТОГО СЕБЕСТОИМОСТЬ НА СКЛАДЕ</div>
           <div class="bg-cell grand-val" id="bg-gt-plan-${safeId}">${bgFmt(c.totalPlan)} ₽</div>
           <div class="bg-cell grand-val" id="bg-gt-fact-${safeId}">${bgFmt(c.totalFact)} ₽</div>
