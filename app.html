@@ -9876,12 +9876,20 @@ function addEvent(id) {
   if (!textEl || !textEl.value.trim()) return;
   const s = shipments.find(x => x.id == id);
   if (!s) return;
+  const amountEl    = document.getElementById('new-event-amount-' + id);
+  const budgetEl    = document.getElementById('new-event-budget-' + id);
+  const linkedAmount = amountEl && amountEl.value ? parseFloat(amountEl.value) : 0;
+  const linkedLine   = budgetEl ? budgetEl.value : '';
   s.events.unshift({
     date: new Date().toLocaleDateString('ru-RU'),
     icon: '📝',
     text: textEl.value.trim(),
-    note: noteEl ? noteEl.value.trim() : ''
+    note: noteEl ? noteEl.value.trim() : '',
+    ...(linkedAmount && linkedLine ? { amount: linkedAmount, budgetLine: linkedLine } : {})
   });
+  if (linkedAmount && linkedLine && s.po) {
+    bgLinkEventToBudget(s.po, linkedLine, linkedAmount);
+  }
   shipmentsSyncToDB(s);
   shipmentsSave();
   renderShipments();
@@ -10021,7 +10029,7 @@ function buildDetailHTML(s) {
     : s.events.map(e => `<div class="event-row">
         <div class="event-date">${e.date||''}</div>
         <div class="event-icon">${e.icon||'●'}</div>
-        <div class="event-text"><b>${e.text||''}</b>${e.note?'<div class="event-note">'+e.note+'</div>':''}</div>
+        <div class="event-text"><b>${e.text||''}</b>${e.note?'<div class="event-note">'+e.note+'</div>':''}${e.amount&&e.budgetLine?'<div class="event-note" style="color:var(--co-accent);font-size:11px">📊 '+bgFmt(e.amount)+' ₽ → себест.</div>':''}</div>
       </div>`).join('');
   return `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
@@ -10035,6 +10043,46 @@ function buildDetailHTML(s) {
           <div class="field" style="margin-bottom:8px">
             <label>Примечание</label>
             <input id="new-event-note-${id}" placeholder="Номер документа, комментарий..." style="width:100%">
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <div class="field" style="margin:0;flex:1">
+              <label style="display:flex;align-items:center;gap:4px">
+                <span style="color:var(--co-accent)">📊</span> Сумма ₽ → себест.
+              </label>
+              <input type="number" id="new-event-amount-${id}" placeholder="0" style="width:100%">
+            </div>
+            <div class="field" style="margin:0;flex:1.4">
+              <label>Статья себестоимости</label>
+              <select id="new-event-budget-${id}" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px">
+                <option value="">— не привязывать</option>
+                <optgroup label="📦 Товар">
+                  <option value="goods_invoice">Стоимость товара</option>
+                  <option value="goods_addon">Доп. позиции</option>
+                </optgroup>
+                <optgroup label="🚢 Логистика">
+                  <option value="log_freight">Фрахт</option>
+                  <option value="log_origin">Сборы в порту отправления</option>
+                  <option value="log_dest">Сборы в порту назначения</option>
+                  <option value="log_inland">Внутренняя доставка</option>
+                  <option value="log_insurance">Страхование груза</option>
+                  <option value="log_other">Прочие логист. расходы</option>
+                </optgroup>
+                <optgroup label="🏛️ Таможня">
+                  <option value="cus_duty">Таможенная пошлина</option>
+                  <option value="cus_vat">НДС при ввозе</option>
+                  <option value="cus_fee">Таможенный сбор</option>
+                  <option value="cus_broker">Услуги брокера</option>
+                  <option value="cus_cert">Сертификация</option>
+                  <option value="cus_other">Прочие таможенные</option>
+                </optgroup>
+                <optgroup label="💳 Прочее">
+                  <option value="oth_bank">Банковская комиссия</option>
+                  <option value="oth_storage">Хранение</option>
+                  <option value="oth_inspect">Инспекция / сюрвей</option>
+                  <option value="oth_misc">Прочие расходы</option>
+                </optgroup>
+              </select>
+            </div>
           </div>
           <button class="gen-btn" onclick="addEvent('${id}')" style="margin-top:4px;padding:8px 16px">+ Добавить</button>
           ${canAdvance ? `<button class="gen-btn secondary" onclick="advanceStage('${id}')" style="margin-top:4px;padding:8px 14px">→ ${nextStageLabel}</button>` : `<div style="color:#2e7d32;font-size:11px;margin-top:8px;font-family:'IBM Plex Mono',monospace">✓ Поставка завершена</div>`}
@@ -12529,20 +12577,58 @@ function bgCreateBudget(po, supplier, cargo, prefill) {
   renderBudgets();
 }
 
+// Called from addEvent: records fact amount in the matching budget line
+function bgLinkEventToBudget(po, lineId, amount) {
+  if (!po || !lineId || !amount) return;
+  let b = budgets.find(x => x.po === po);
+  if (!b) {
+    // Auto-create budget skeleton so fact can be recorded
+    const s = shipments.find(x => x.po === po);
+    bgCreateBudget(po, s ? s.supplier||'' : '', s ? s.cargo||'' : '', {});
+    b = budgets.find(x => x.po === po);
+  }
+  if (!b || !b.lines[lineId]) return;
+  b.lines[lineId].fact = (b.lines[lineId].fact || 0) + amount;
+  bgSave();
+}
+
 function bgSyncFromTracker() {
   if (!shipments || shipments.length === 0) { alert('Нет поставок в Трекере. Добавьте поставки в раздел 05.'); return; }
-  let added = 0;
+  let added = 0, synced = 0;
   shipments.forEach(s => {
-    if (budgets.find(b=>b.po===s.po)) return;
-    // Parse value from tracker (could be "149,112 INR" or raw number)
-    const rawVal = s.value || '';
-    const numVal = parseFloat(rawVal.replace(/[^0-9.]/g,'')) || 0;
-    // Rough prefill: goods = invoice value (as-is, user adjusts currency)
-    bgCreateBudget(s.po, s.supplier||'', s.cargo||'', { goods_invoice: numVal });
-    added++;
+    if (!s.po) return;
+    if (!budgets.find(b => b.po === s.po)) {
+      // Parse value from tracker (could be "149,112 INR" or raw number)
+      const rawVal = s.value || '';
+      const numVal = parseFloat(rawVal.replace(/[^0-9.]/g,'')) || 0;
+      // Rough prefill: goods = invoice value (as-is, user adjusts currency)
+      bgCreateBudget(s.po, s.supplier||'', s.cargo||'', { goods_invoice: numVal });
+      added++;
+    }
+    // Re-calculate fact values from events that have linked amounts
+    const b = budgets.find(x => x.po === s.po);
+    if (b && s.events && s.events.length) {
+      const eventFacts = {};
+      s.events.forEach(ev => {
+        if (ev.amount && ev.budgetLine && b.lines[ev.budgetLine]) {
+          eventFacts[ev.budgetLine] = (eventFacts[ev.budgetLine] || 0) + ev.amount;
+        }
+      });
+      Object.keys(eventFacts).forEach(lineId => {
+        if (b.lines[lineId] && b.lines[lineId].fact !== eventFacts[lineId]) {
+          b.lines[lineId].fact = eventFacts[lineId];
+          synced++;
+        }
+      });
+    }
   });
-  if (added > 0) { alert('Импортировано '+added+' поставок из Трекера. Заполните бюджетные строки.'); }
-  else alert('Все поставки из Трекера уже имеют бюджеты.');
+  bgSave();
+  renderBudgets();
+  let msg = '';
+  if (added > 0) msg += 'Импортировано ' + added + ' поставок из Трекера. ';
+  if (synced > 0) msg += 'Обновлено ' + synced + ' строк факта из событий. ';
+  if (!msg) msg = 'Все поставки актуальны — изменений нет.';
+  alert(msg.trim());
 }
 
 function bgToggle(po) {
