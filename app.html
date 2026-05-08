@@ -5870,8 +5870,9 @@
           </div>
         </div>
 
-        <div class="block-title">Документы</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:24px" id="docs-checklist">
+        <div class="block-title">Документы к поставке</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Отметьте уже имеющиеся — остальные получат статус «Не получен»</div>
+        <div style="display:flex;flex-direction:column;gap:2px;margin-bottom:24px" id="docs-checklist">
           <!-- rendered by JS -->
         </div>
 
@@ -9660,12 +9661,21 @@ const REQUIRED_DOCS = [
 let shipments = [];
 
 function openNewShipmentModal() {
-  // render docs checklist
-  document.getElementById('docs-checklist').innerHTML = REQUIRED_DOCS.map((d, i) =>
-    `<label style="display:flex;align-items:center;gap:8px;font-size:12px;padding:6px 0;cursor:pointer">
-      <input type="checkbox" id="doc-${i}" style="accent-color:var(--accent)"> ${d}
-    </label>`
-  ).join('');
+  // render docs list grouped by category
+  document.getElementById('docs-checklist').innerHTML = SHP_DOC_GROUPS.map(group => {
+    const rows = group.docs.map(def =>
+      `<label style="display:flex;align-items:center;gap:10px;font-size:12px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background 0.1s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+        <input type="checkbox" id="doc-${def.id}" style="accent-color:var(--co-accent);flex-shrink:0">
+        <span style="font-size:14px;flex-shrink:0">${def.icon}</span>
+        <span style="flex:1">${def.name}</span>
+        ${def.required ? '<span style="font-size:9px;color:var(--co-accent);font-family:\'JetBrains Mono\',monospace;font-weight:700">ОБЯ</span>' : ''}
+      </label>`
+    ).join('');
+    return `<div style="margin-bottom:10px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:var(--text3);padding:6px 8px 4px;border-bottom:1px solid var(--border);margin-bottom:4px">${group.label}</div>
+      ${rows}
+    </div>`;
+  }).join('');
   document.getElementById('modal-overlay').classList.add('open');
 }
 
@@ -9676,10 +9686,10 @@ function closeModal() {
 function createShipment() {
   const po = document.getElementById('m-po').value || ('SHIP-' + Date.now());
   const companyId = document.querySelector('input[name="m-company"]:checked')?.value || activeCompany || 'ENDV';
-  const docs = REQUIRED_DOCS.map((d, i) => ({
-    name: d,
-    received: document.getElementById('doc-' + i).checked
-  }));
+  const docs = SHP_DOCS_LIST.map(def => {
+    const checked = document.getElementById('doc-' + def.id)?.checked || false;
+    return { id: def.id, name: def.name, icon: def.icon, status: checked ? 'received' : 'none', received: checked };
+  });
   const shipment = {
     id: Date.now(),
     po,
@@ -9719,7 +9729,7 @@ function createShipment() {
 }
 
 function advanceStage(id) {
-  const s = shipments.find(x => x.id === id);
+  const s = shipments.find(x => x.id == id);
   if (!s || s.currentStage >= PIPE_STAGES.length - 1) return;
   s.currentStage++;
   const stage = PIPE_STAGES[s.currentStage];
@@ -9737,7 +9747,7 @@ function addEvent(id) {
   const textEl = document.getElementById('new-event-text-' + id);
   const noteEl = document.getElementById('new-event-note-' + id);
   if (!textEl || !textEl.value.trim()) return;
-  const s = shipments.find(x => x.id === id);
+  const s = shipments.find(x => x.id == id);
   s.events.unshift({
     date: new Date().toLocaleDateString('ru-RU'),
     icon: '📝',
@@ -9750,7 +9760,7 @@ function addEvent(id) {
 }
 
 function toggleDoc(id, docId) {
-  const s = shipments.find(x => x.id === id);
+  const s = shipments.find(x => x.id == id);
   if (!s) return;
   // Find doc by id (new) or index (legacy)
   let doc = typeof docId === 'string'
@@ -9779,7 +9789,7 @@ function toggleDoc(id, docId) {
 }
 
 function toggleExpand(id) {
-  const s = shipments.find(x => x.id === id);
+  const s = shipments.find(x => x.id == id);
   if (!s) return;
   s.expanded = !s.expanded;
   renderShipments();
@@ -9839,12 +9849,17 @@ function renderDocPackage(s) {
 }
 
 function showDetail(id) {
-  const s = shipments.find(x => x.id === id);
+  // id may be number (from onclick attr) or string (from DB) — use loose equality
+  const s = shipments.find(x => x.id == id);
   if (!s) return;
   const detailEl = document.getElementById('shipment-detail');
   const contentEl = document.getElementById('detail-content');
-  document.getElementById('detail-title').textContent = s.po + ' · ' + s.cargo;
+  // po / shipment_number / cargo / items[0] — handle both old and new format
+  const poLabel = s.po || s.shipment_number || '—';
+  const cargoLabel = s.cargo || (s.items && s.items[0] ? s.items[0].name : '') || s.contract_id || '';
+  document.getElementById('detail-title').textContent = poLabel + (cargoLabel ? ' · ' + cargoLabel : '');
 
+  if (!s.docs) s.docs = [];
   const docsReceived = s.docs.filter(d => d.received).length;
 
   contentEl.innerHTML = `
