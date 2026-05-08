@@ -4586,6 +4586,12 @@
     <div class="nav-item" id="nav-admin-item" style="display:none" onclick="showSection('admin')">
       <span class="nav-icon">👥</span> Пользователи
     </div>
+
+    <div class="nav-sep"></div>
+    <div class="nav-label">⚙ Настройки</div>
+    <div class="nav-item nav-sub" onclick="showSection('admin');setTimeout(()=>{const el=document.getElementById('yd-status-bar');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},200)">
+      <span class="nav-icon">☁️</span> Яндекс Диск
+    </div>
   </nav>
 
   <main>
