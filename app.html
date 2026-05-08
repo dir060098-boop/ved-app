@@ -12749,7 +12749,8 @@ function ydFolder()   { return (localStorage.getItem('ved_yd_folder') || 'ВЭД
 function ydConnect() {
   const clientId = ydClientId();
   if (!clientId) { alert('Введите Client ID приложения Яндекс OAuth и сохраните страницу.'); return; }
-  const url = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${clientId}&force_confirm=yes`;
+  const scope = encodeURIComponent('cloud_api:disk.read cloud_api:disk.write cloud_api:disk.info');
+  const url = `https://oauth.yandex.ru/authorize?response_type=token&client_id=${clientId}&scope=${scope}&force_confirm=yes`;
   window.open(url, '_blank', 'width=660,height=720,noopener');
   setTimeout(() => {
     const token = prompt(
