@@ -12928,9 +12928,24 @@ function ydRemoveFile(shipmentId, docId, fileIdx) {
 
 // ── Open file from Yandex Disk ─────────────────────────────────
 async function ydOpenFile(remotePath) {
-  const link = await ydGetLink(remotePath);
-  if (link) window.open(link, '_blank');
-  else alert('Не удалось получить ссылку. Проверьте подключение Яндекс Диска.');
+  const token = ydToken();
+  if (!token) { alert('Яндекс Диск не подключён.'); return; }
+  try {
+    // Get resource metadata — contains a browser-friendly 'file' URL
+    const metaRes = await fetch(`${YD_API}/resources?path=${encodeURIComponent(remotePath)}&fields=file,name,media_type`, {
+      headers: { Authorization: 'OAuth ' + token }
+    });
+    if (metaRes.ok) {
+      const meta = await metaRes.json();
+      if (meta.file) { window.open(meta.file, '_blank'); return; }
+    }
+    // Fallback: temporary download link
+    const link = await ydGetLink(remotePath);
+    if (link) window.open(link, '_blank');
+    else alert('Не удалось получить ссылку на файл.');
+  } catch(e) {
+    alert('Ошибка открытия файла: ' + e.message);
+  }
 }
 
 // ── Download full customs package as ZIP ──────────────────────
