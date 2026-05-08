@@ -9741,8 +9741,7 @@ function advanceStage(id) {
     text: 'Этап завершён: ' + stage.label.replace('\n', ' '),
     note: ''
   });
-  renderShipments();
-  if (s.expanded) showDetail(id);
+  renderShipments(); // accordion in card re-renders with updated stage
 }
 
 function addEvent(id) {
@@ -9750,15 +9749,14 @@ function addEvent(id) {
   const noteEl = document.getElementById('new-event-note-' + id);
   if (!textEl || !textEl.value.trim()) return;
   const s = shipments.find(x => x.id == id);
+  if (!s) return;
   s.events.unshift({
     date: new Date().toLocaleDateString('ru-RU'),
     icon: '📝',
     text: textEl.value.trim(),
     note: noteEl ? noteEl.value.trim() : ''
   });
-  textEl.value = ''; if (noteEl) noteEl.value = '';
-  renderShipments();
-  showDetail(id);
+  renderShipments(); // accordion in card re-renders with new event
 }
 
 function toggleDoc(id, docId) {
@@ -9786,17 +9784,16 @@ function toggleDoc(id, docId) {
   }
   shipmentsSyncToDB(s);
   shipmentsSave();
-  renderShipments();
-  showDetail(id);
+  renderShipments(); // accordion in card re-renders with updated doc status
 }
 
 function toggleExpand(id) {
   const s = shipments.find(x => x.id == id);
   if (!s) return;
+  // Collapse all others, toggle this one
+  shipments.forEach(x => { if (x.id != id) x.expanded = false; });
   s.expanded = !s.expanded;
-  renderShipments();
-  if (s.expanded) showDetail(id);
-  else closeDetail();
+  renderShipments(); // accordion detail rendered inside card by renderShipments
 }
 
 function renderDocPackage(s) {
@@ -9848,6 +9845,43 @@ function renderDocPackage(s) {
     '<div style="font-size:10px;color:var(--text3);margin-bottom:10px;font-family:\'JetBrains Mono\',monospace">' +
     'Нажмите на статус для переключения: ⬜ Не получен → 📩 Запрошен → ✅ Получен → 🏛️ На таможне</div>' +
     groupsHtml;
+}
+
+function buildDetailHTML(s) {
+  // s is already normalized (currentStage, po, events, docs set)
+  const id = s.id;
+  const stage = typeof s.currentStage === 'number' ? s.currentStage : -1;
+  const canAdvance = stage >= 0 && stage < PIPE_STAGES.length - 1;
+  const nextStageLabel = canAdvance ? PIPE_STAGES[stage + 1].label.replace('\n',' ') : '';
+  const eventsHtml = !s.events || s.events.length === 0
+    ? '<div style="color:var(--text3);font-size:12px;padding:8px 0">Нет событий</div>'
+    : s.events.map(e => `<div class="event-row">
+        <div class="event-date">${e.date||''}</div>
+        <div class="event-icon">${e.icon||'●'}</div>
+        <div class="event-text"><b>${e.text||''}</b>${e.note?'<div class="event-note">'+e.note+'</div>':''}</div>
+      </div>`).join('');
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+      <div>
+        <div class="block-title" style="margin-bottom:10px">Добавить событие</div>
+        <div class="update-form" style="margin:0">
+          <div class="field" style="margin-bottom:8px">
+            <label>Событие</label>
+            <input id="new-event-text-${id}" placeholder="Груз прошёл экспортную таможню..." style="width:100%">
+          </div>
+          <div class="field" style="margin-bottom:8px">
+            <label>Примечание</label>
+            <input id="new-event-note-${id}" placeholder="Номер документа, комментарий..." style="width:100%">
+          </div>
+          <button class="gen-btn" onclick="addEvent(${id})" style="margin-top:4px;padding:8px 16px">+ Добавить</button>
+          ${canAdvance ? `<button class="gen-btn secondary" onclick="advanceStage(${id})" style="margin-top:4px;padding:8px 14px">→ ${nextStageLabel}</button>` : `<div style="color:#2e7d32;font-size:11px;margin-top:8px;font-family:'IBM Plex Mono',monospace">✓ Поставка завершена</div>`}
+        </div>
+      </div>
+      <div>${renderDocPackage(s)}</div>
+    </div>
+    <div class="block-title" style="margin-bottom:8px">История событий</div>
+    <div class="event-log" style="padding:0;max-height:240px;overflow-y:auto">${eventsHtml}</div>
+  `;
 }
 
 function showDetail(id) {
@@ -10004,6 +10038,7 @@ function renderShipments() {
         <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text3);margin-left:4px">${s.expanded ? '▲' : '▼'}</div>
       </div>
       <div class="pipeline">${pipeHTML}</div>
+      ${s.expanded ? `<div style="padding:20px 20px 16px;border-top:1px solid var(--border)">${buildDetailHTML(s)}</div>` : ''}
     </div>`;
   }).join('');
 }
