@@ -10070,13 +10070,13 @@ function renderDocPackage(s) {
         `<button onclick="event.stopPropagation();ydRemoveFile('${s.id}','${def.id}',${fi})" title="Удалить ссылку">✕</button>` +
         `</div>`
       ).join('');
-      const hasYd = !!ydToken();
-      const uploadBtn = hasYd
+      // Upload button always visible: if no token — redirect to YD settings
+      const uploadBtn = ydToken()
         ? `<div class="yd-upload-wrap" style="display:inline-block" onclick="event.stopPropagation()">` +
           `<label class="yd-upload-btn" title="Загрузить скан на Яндекс Диск">` +
           `📎 Скан<input type="file" accept=".pdf,.jpg,.jpeg,.png,.tiff" style="display:none" onchange="ydHandleUpload(this,'${s.id}','${def.id}')"></label>` +
           `</div>`
-        : '';
+        : `<button class="yd-upload-btn" onclick="event.stopPropagation();navTo('admin');setTimeout(()=>{const el=document.getElementById('yd-status-bar');if(el)el.scrollIntoView({behavior:'smooth'})},400)" title="Подключите Яндекс Диск для загрузки сканов">☁️ Диск</button>`;
       return '<div class="doc-pkg-row">' +
         '<div style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer" onclick="toggleDoc(\'' + s.id + '\',\'' + def.id + '\')">' +
         '<div class="doc-pkg-icon">' + def.icon + '</div>' +
@@ -10106,11 +10106,9 @@ function renderDocPackage(s) {
 
   // Count total attached files
   const totalFiles = (s.docs || []).reduce((a, d) => a + (d.files ? d.files.length : 0), 0);
-  const hasYd = !!ydToken();
-  const pkgBtn = hasYd
-    ? `<button id="yd-pkg-btn-${s.id}" class="yd-pkg-btn" onclick="downloadCustomsPackage('${s.id}')" style="margin-top:12px">` +
-      `📦 Открыть пакет на Диске${totalFiles ? ' (' + totalFiles + ' файлов)' : ''}</button>`
-    : `<div style="margin-top:10px;font-size:11px;color:var(--text3)">☁️ Подключите <b>Яндекс Диск</b> в Настройках для загрузки сканов и скачивания таможенного пакета</div>`;
+  // Package button always visible; downloadCustomsPackage() checks token internally
+  const pkgBtn = `<button id="yd-pkg-btn-${s.id}" class="yd-pkg-btn" onclick="downloadCustomsPackage('${s.id}')" style="margin-top:12px">` +
+    `📦 Открыть пакет на Диске${totalFiles ? ' (' + totalFiles + ' файлов)' : ''}</button>`;
 
   return '<div class="block-title" style="margin-bottom:10px">Пакет документов (' + totalReceived + '/' + totalDocs + ' получено)</div>' +
     '<div style="font-size:10px;color:var(--text3);margin-bottom:10px;font-family:\'JetBrains Mono\',monospace">' +
@@ -12928,12 +12926,10 @@ function ydRemoveFile(shipmentId, docId, fileIdx) {
 
 // ── Open file from Yandex Disk — via web interface ────────────
 async function ydOpenFile(remotePath) {
-  // Strip "disk:/" prefix and build Yandex Disk web URL for the parent folder
+  // Strip "disk:/" prefix and navigate directly to the file in Yandex Disk web UI
+  // Yandex Disk web client can open PDFs and images in its built-in viewer
   const pathClean = remotePath.replace(/^disk:\//,'');
-  const parts = pathClean.split('/');
-  parts.pop(); // remove filename, open the folder
-  const folderPath = parts.join('/');
-  const webUrl = 'https://disk.yandex.ru/client/disk/' + parts.map(encodeURIComponent).join('/');
+  const webUrl = 'https://disk.yandex.ru/client/disk/' + pathClean.split('/').map(encodeURIComponent).join('/');
   window.open(webUrl, '_blank');
 }
 
@@ -12944,7 +12940,11 @@ async function downloadCustomsPackage(shipmentId) {
   const s = shipments.find(x => x.id == shipmentId);
   if (!s) return;
   const token = ydToken();
-  if (!token) { alert('Яндекс Диск не подключён. Перейдите в Настройки → Яндекс Диск.'); return; }
+  if (!token) {
+    navTo('admin');
+    setTimeout(() => { const el = document.getElementById('yd-status-bar'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 400);
+    return;
+  }
   const allFiles = [];
   (s.docs || []).forEach(doc => { (doc.files || []).forEach(f => allFiles.push({ doc, file: f })); });
   if (!allFiles.length) { alert('К этой поставке ещё не прикреплено ни одного скана.'); return; }
