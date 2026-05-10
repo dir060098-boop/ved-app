@@ -12985,6 +12985,15 @@ function bgToggle(po) {
   if (b) { b.expanded = !b.expanded; renderBudgets(); }
 }
 
+// Toggle НДС к вычету (ОСНО) / в затраты (УСН)
+function bgToggleVatDeductible(po) {
+  const b = budgets.find(x => x.po === po);
+  if (!b) return;
+  b.vatDeductible = !b.vatDeductible;
+  bgSave();
+  renderBudgets();
+}
+
 function bgDelete(po) {
   if (!confirm('Удалить бюджет «'+po+'»? Данные нельзя восстановить.')) return;
   budgets = budgets.filter(b=>b.po!==po);
@@ -13018,7 +13027,7 @@ function bgAutoCalcDuty(po) {
   const dutyRateEl = document.getElementById('bg-duty-rate-' + safeId);
   const vatRateEl  = document.getElementById('bg-vat-rate-' + safeId);
   const dutyRate = parseFloat(dutyRateEl?.value) || 0;
-  const vatRate  = parseFloat(vatRateEl?.value) || 20;
+  const vatRate  = parseFloat(vatRateEl?.value) || 22;
   if (!dutyRate) { alert('Введите ставку пошлины (%)'); return; }
   // Base: sum of goods plan
   const goodsBase = (b.lines['goods_invoice']?.plan||0) + (b.lines['goods_addon']?.plan||0);
@@ -13053,15 +13062,20 @@ function bgUpdateQty(po, field, value) {
 }
 
 function bgCalc(b) {
-  const all = Object.values(BG_LINES).flat();
   let totalPlan = 0, totalFact = 0;
+  let vatPlan = 0, vatFact = 0;
   const groups = {};
   Object.keys(BG_LINES).forEach(g => {
     const gLines = BG_LINES[g];
     let gPlan=0, gFact=0;
     gLines.forEach(l => {
       const v = b.lines[l.id] || {plan:0,fact:0};
-      gPlan += v.plan; gFact += v.fact;
+      // If ОСНО / VAT-deductible: НДС at import is recoverable → exclude from cost
+      if (l.id === 'cus_vat' && b.vatDeductible) {
+        vatPlan += v.plan||0; vatFact += v.fact||0;
+      } else {
+        gPlan += v.plan||0; gFact += v.fact||0;
+      }
     });
     groups[g] = { plan:gPlan, fact:gFact };
     totalPlan += gPlan; totalFact += gFact;
@@ -13070,7 +13084,7 @@ function bgCalc(b) {
   const deltaPct = totalPlan > 0 ? (delta/totalPlan*100) : 0;
   const cogs = b.qty > 0 ? totalFact / b.qty : 0;
   const cogsPlan = b.qty > 0 ? totalPlan / b.qty : 0;
-  return { totalPlan, totalFact, delta, deltaPct, cogs, cogsPlan, groups };
+  return { totalPlan, totalFact, delta, deltaPct, cogs, cogsPlan, groups, vatPlan, vatFact };
 }
 
 function bgFmt(n) {
@@ -13212,19 +13226,41 @@ function renderBudgets() {
       }
       if (g === 'customs') {
         const goodsVal = (b.lines['goods_invoice']?.plan||0) + (b.lines['goods_addon']?.plan||0);
+        const vatToggleLabel = b.vatDeductible
+          ? `<span style="color:var(--co-accent);font-weight:700">✅ ОСНО — НДС к вычету</span>`
+          : `<span style="color:var(--text3)">☐ УСН / спецрежим — НДС в затраты</span>`;
         helperHtml = `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
           <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">СТАВКА ПОШЛИНЫ %</div>
             <input type="number" id="bg-duty-rate-${safeId}" value="${b.dutyRate||''}" placeholder="10" style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
           <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">СТАВКА НДС %</div>
-            <input type="number" id="bg-vat-rate-${safeId}" value="${b.vatRate||20}" placeholder="20" style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
+            <input type="number" id="bg-vat-rate-${safeId}" value="${b.vatRate||22}" placeholder="22" style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
           <button onclick="bgAutoCalcDuty('${b.po}')" style="padding:6px 14px;background:var(--rust);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">⚡ Рассчитать пошлину и НДС</button>
           ${goodsVal ? `<div style="font-family:'Fira Code',monospace;font-size:10px;color:var(--text3);padding-bottom:2px">База: ${bgFmt(goodsVal)} ₽</div>` : ''}
+          <div style="width:100%;margin-top:6px;padding-top:8px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <button onclick="bgToggleVatDeductible('${b.po}')" style="padding:5px 12px;border:1.5px solid ${b.vatDeductible?'var(--co-accent)':'var(--border)'};border-radius:6px;background:${b.vatDeductible?'rgba(31,122,99,0.08)':'transparent'};cursor:pointer;font-size:11px;font-family:'Fira Code',monospace;transition:all 0.15s">
+              ${vatToggleLabel}
+            </button>
+            <span style="font-size:10px;color:var(--text3)">${b.vatDeductible ? 'НДС возмещается из бюджета — не включается в себестоимость' : 'НДС входит в себестоимость товара'}</span>
+          </div>
         </div>`;
       }
 
       const linesHtml = BG_LINES[g].map(l => {
         const v = b.lines[l.id] || {plan:0,fact:0};
         const d = (v.fact||0) - (v.plan||0);
+        // Special rendering for НДС row when it's deductible (ОСНО)
+        if (l.id === 'cus_vat' && b.vatDeductible) {
+          return `<div class="bg-row" style="background:rgba(31,122,99,0.04)">
+            <div class="bg-cell label" style="opacity:0.8">${l.label}
+              <span style="font-size:9px;font-weight:700;color:var(--co-accent);background:rgba(31,122,99,0.15);padding:2px 6px;border-radius:4px;margin-left:6px;font-family:'Fira Code',monospace;letter-spacing:0.5px">К ВЫЧЕТУ</span>
+            </div>
+            <div class="bg-cell"><input type="number" value="${v.plan||''}" placeholder="0" style="opacity:0.65"
+              onchange="bgUpdateLine('${b.po}','${l.id}','plan',this.value)"></div>
+            <div class="bg-cell"><input type="number" value="${v.fact||''}" placeholder="0" style="opacity:0.65"
+              onchange="bgUpdateLine('${b.po}','${l.id}','fact',this.value)"></div>
+            <div class="bg-cell" style="font-size:10px;color:var(--co-accent);font-weight:700;text-align:right;font-family:'Fira Code',monospace">возмещается</div>
+          </div>`;
+        }
         return `<div class="bg-row">
           <div class="bg-cell label">${l.label}</div>
           <div class="bg-cell"><input type="number" value="${v.plan||''}" placeholder="0"
@@ -13234,6 +13270,16 @@ function renderBudgets() {
           <div class="bg-cell delta ${bgDeltaClass(d)}">${v.plan||v.fact ? bgDeltaSign(d) : '—'}</div>
         </div>`;
       }).join('');
+
+      // For customs group: show deductible VAT note after subtotal
+      const vatNote = (g === 'customs' && b.vatDeductible && (c.vatPlan || c.vatFact))
+        ? `<div style="font-size:10px;color:var(--co-accent);padding:6px 8px 2px;font-family:'Fira Code',monospace;display:flex;gap:6px;align-items:center">
+            <span>↑ НДС к вычету:</span>
+            ${c.vatPlan ? `<b>${bgFmt(c.vatPlan)} ₽ план</b>` : ''}
+            ${c.vatFact ? `<b>${bgFmt(c.vatFact)} ₽ факт</b>` : ''}
+            <span style="color:var(--text3)">— возмещается из бюджета, в себестоимость не входит</span>
+           </div>`
+        : '';
 
       return `<div class="bg-section-title" style="color:${BG_COLORS[g]}">${grp.title}${gPct ? `<span style="font-size:10px;font-weight:400;margin-left:8px;opacity:0.7">${gPct}%</span>` : ''}</div>
         ${helperHtml}
@@ -13245,12 +13291,13 @@ function renderBudgets() {
         </div>
         ${linesHtml}
         <div class="bg-row subtotal">
-          <div class="bg-cell label" style="font-weight:600">Итого ${grp.title.toLowerCase()}</div>
+          <div class="bg-cell label" style="font-weight:600">Итого ${grp.title.toLowerCase()}${g==='customs'&&b.vatDeductible?' <span style="font-size:9px;font-weight:400;color:var(--text3)">(без НДС)</span>':''}</div>
           <div class="bg-cell right" id="bg-sub-plan-${b.po}-${g}">${bgFmt(c.groups[g].plan)}</div>
           <div class="bg-cell right" id="bg-sub-fact-${b.po}-${g}">${bgFmt(c.groups[g].fact)}</div>
           <div class="bg-cell delta ${bgDeltaClass(c.groups[g].fact-c.groups[g].plan)}"
                id="bg-sub-delta-${b.po}-${g}">${bgDeltaSign(c.groups[g].fact-c.groups[g].plan)}</div>
-        </div>`;
+        </div>
+        ${vatNote}`;
     }).join('');
 
     return `<div class="bg-card ${b.expanded?'expanded':''}" id="bg-card-${safeId}">
