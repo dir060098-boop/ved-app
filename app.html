@@ -10109,7 +10109,7 @@ function renderDocPackage(s) {
   const hasYd = !!ydToken();
   const pkgBtn = hasYd
     ? `<button id="yd-pkg-btn-${s.id}" class="yd-pkg-btn" onclick="downloadCustomsPackage('${s.id}')" style="margin-top:12px">` +
-      `📦 Скачать таможенный пакет${totalFiles ? ' (' + totalFiles + ' файлов)' : ''}</button>`
+      `📦 Открыть пакет на Диске${totalFiles ? ' (' + totalFiles + ' файлов)' : ''}</button>`
     : `<div style="margin-top:10px;font-size:11px;color:var(--text3)">☁️ Подключите <b>Яндекс Диск</b> в Настройках для загрузки сканов и скачивания таможенного пакета</div>`;
 
   return '<div class="block-title" style="margin-bottom:10px">Пакет документов (' + totalReceived + '/' + totalDocs + ' получено)</div>' +
@@ -12926,29 +12926,20 @@ function ydRemoveFile(shipmentId, docId, fileIdx) {
   shipmentsSyncToDB(s); shipmentsSave(); renderShipments();
 }
 
-// ── Open file from Yandex Disk ─────────────────────────────────
+// ── Open file from Yandex Disk — via web interface ────────────
 async function ydOpenFile(remotePath) {
-  const token = ydToken();
-  if (!token) { alert('Яндекс Диск не подключён.'); return; }
-  try {
-    // Get resource metadata — contains a browser-friendly 'file' URL
-    const metaRes = await fetch(`${YD_API}/resources?path=${encodeURIComponent(remotePath)}&fields=file,name,media_type`, {
-      headers: { Authorization: 'OAuth ' + token }
-    });
-    if (metaRes.ok) {
-      const meta = await metaRes.json();
-      if (meta.file) { window.open(meta.file, '_blank'); return; }
-    }
-    // Fallback: temporary download link
-    const link = await ydGetLink(remotePath);
-    if (link) window.open(link, '_blank');
-    else alert('Не удалось получить ссылку на файл.');
-  } catch(e) {
-    alert('Ошибка открытия файла: ' + e.message);
-  }
+  // Strip "disk:/" prefix and build Yandex Disk web URL for the parent folder
+  const pathClean = remotePath.replace(/^disk:\//,'');
+  const parts = pathClean.split('/');
+  parts.pop(); // remove filename, open the folder
+  const folderPath = parts.join('/');
+  const webUrl = 'https://disk.yandex.ru/client/disk/' + parts.map(encodeURIComponent).join('/');
+  window.open(webUrl, '_blank');
 }
 
-// ── Download full customs package as ZIP ──────────────────────
+// ── Download full customs package ─────────────────────────────
+// Generates inventory TXT locally + opens Yandex Disk folder in browser
+// (direct fetch to downloader.disk.yandex.ru is blocked by CORS from github.io)
 async function downloadCustomsPackage(shipmentId) {
   const s = shipments.find(x => x.id == shipmentId);
   if (!s) return;
@@ -12958,48 +12949,33 @@ async function downloadCustomsPackage(shipmentId) {
   (s.docs || []).forEach(doc => { (doc.files || []).forEach(f => allFiles.push({ doc, file: f })); });
   if (!allFiles.length) { alert('К этой поставке ещё не прикреплено ни одного скана.'); return; }
 
-  const btn = document.getElementById('yd-pkg-btn-' + shipmentId);
-  if (btn) { btn.textContent = '⏳ Формирую пакет...'; btn.disabled = true; }
-
-  try {
-    const zip = new JSZip();
-    // Generate описть (inventory)
-    let opisStr = `ТАМОЖЕННЫЙ ПАКЕТ ДОКУМЕНТОВ\n`;
-    opisStr += `Поставка: ${s.po || s.id} — ${s.supplier || ''}\n`;
-    opisStr += `Товар: ${s.cargo || ''}\n`;
-    opisStr += `Сформировано: ${new Date().toLocaleDateString('ru-RU')}\n`;
-    opisStr += `\n${'─'.repeat(60)}\n\n`;
-    let n = 1;
-    for (const { doc, file } of allFiles) {
-      opisStr += `${n}. ${doc.name || doc.id} — ${file.name} (${Math.round(file.size/1024)} КБ, загружен ${file.date})\n`;
-      n++;
-    }
-    zip.file('00_Опись.txt', opisStr);
-
-    // Download each file and add to ZIP
-    for (let i = 0; i < allFiles.length; i++) {
-      const { doc, file } = allFiles[i];
-      const link = await ydGetLink(file.path);
-      if (!link) continue;
-      const res = await fetch(link);
-      if (!res.ok) continue;
-      const blob = await res.blob();
-      const num = String(i + 1).padStart(2, '0');
-      zip.file(`${num}_${file.name}`, blob);
-    }
-
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(zipBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${s.po || s.id}_customs_package.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-  } catch(e) {
-    alert('Ошибка формирования пакета: ' + e.message);
-  } finally {
-    if (btn) { btn.textContent = '📦 Скачать таможенный пакет'; btn.disabled = false; }
+  // 1. Generate and download inventory TXT locally
+  let opisStr = `ТАМОЖЕННЫЙ ПАКЕТ ДОКУМЕНТОВ\n`;
+  opisStr += `Поставка: ${s.po || s.id} — ${s.supplier || ''}\n`;
+  opisStr += `Товар: ${s.cargo || ''}\n`;
+  opisStr += `Сформировано: ${new Date().toLocaleDateString('ru-RU')}\n`;
+  opisStr += `\n${'─'.repeat(60)}\n\n`;
+  let n = 1;
+  for (const { doc, file } of allFiles) {
+    opisStr += `${n}. ${doc.name || doc.id} — ${file.name} (${Math.round((file.size||0)/1024)} КБ, загружен ${file.date||''})\n`;
+    n++;
   }
+  opisStr += `\n${'─'.repeat(60)}\n`;
+  opisStr += `Итого файлов: ${allFiles.length}\n`;
+  opisStr += `Папка на Яндекс Диске: ${ydFolder()}/${activeCompany}/${s.po || s.id}/\n`;
+
+  const blob = new Blob([opisStr], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${s.po || s.id}_Опись.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  // 2. Open shipment folder on Yandex Disk web interface
+  const folderPath = [ydFolder(), activeCompany, s.po || s.id].filter(Boolean).join('/');
+  const webUrl = 'https://disk.yandex.ru/client/disk/' + folderPath.split('/').map(encodeURIComponent).join('/');
+  window.open(webUrl, '_blank');
 }
 
 // ════════════════════════════════════════════════════════════════
