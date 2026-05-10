@@ -10340,7 +10340,12 @@ function renderShipments() {
           ${s.deliveryNum ? `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--co-accent-light);color:var(--co-accent);padding:2px 8px;border-radius:10px;font-weight:700">${s.deliveryNum}</span>` : ''}
           ${coBadge}
         </div>
-        <div class="shipment-route"><b>${s.from}</b> → <b>${s.to}</b> · ${s.mode}</div>
+        <div class="shipment-route"><b>${s.from}</b> → <b>${s.to}</b> · ${{sea:'🚢',air:'✈️',rail:'🚂',road:'🚛',multi:'🔄'}[s.mode]||s.mode}${
+          s.logistics?.vessel   ? ` · <span title="Судно">${s.logistics.vessel}</span>` :
+          s.logistics?.awb      ? ` · AWB ${s.logistics.awb}` :
+          s.logistics?.waybill  ? ` · СМГС ${s.logistics.waybill}` :
+          s.logistics?.cmr      ? ` · CMR ${s.logistics.cmr}` : ''
+        }${s.logistics?.containers ? ` · <span title="Контейнеры" style="font-family:'Fira Code',monospace;font-size:10px">${s.logistics.containers.split(',')[0].trim()}${s.logistics.containers.split(',').length>1?' +':''}${s.logistics.containers.split(',').length>1?s.logistics.containers.split(',').length-1:''}</span>` : ''}</div>
         <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3)">📎 ${docsOk}/${s.docs.length}</div>
         <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3)">${pct}%</div>
         <div class="status-badge ${status.cls}">${status.label}</div>
@@ -19191,34 +19196,101 @@ function shpRenderLogistics(s) {
   const el = document.getElementById('shpd-logistics-content');
   if (!el) return;
 
-  const modeIcons = { sea:'🚢', air:'✈', rail:'🚂', road:'🚛', multi:'🔄' };
-  const modeLabels= { sea:'Морской', air:'Авиа', rail:'Железнодорожный', road:'Автомобильный', multi:'Мультимодальный' };
-  const fwdName   = s.forwarder_id ? shpSupName(s.forwarder_id) : '—';
-  const brkName   = s.broker_id    ? shpSupName(s.broker_id)    : '—';
+  const modeIcons  = { sea:'🚢', air:'✈️', rail:'🚂', road:'🚛', multi:'🔄' };
+  const modeLabels = { sea:'Морской', air:'Авиа', rail:'Железнодорожный', road:'Автомобильный', multi:'Мультимодальный' };
+  const fwdName = s.forwarder_id ? shpSupName(s.forwarder_id) : '—';
+  const brkName = s.broker_id    ? shpSupName(s.broker_id)    : '—';
+  const lg = s.logistics || {};
+  const mode = s.mode || 'sea';
 
+  // ── Helper: input field ──────────────────────────────────────────
+  const inp = (id, val, ph='', type='text', extra='') =>
+    `<input id="shplg-${id}" type="${type}" value="${val||''}" placeholder="${ph}" ${extra}
+      style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;
+             background:var(--surface);color:var(--text);font-size:12px;font-family:'Fira Code',monospace">`;
+  const field = (label, inputHtml, span='') =>
+    `<div class="field${span?' '+span:''}" style="display:flex;flex-direction:column;gap:4px">
+      <label style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text3);font-family:'Fira Code',monospace">${label}</label>
+      ${inputHtml}
+    </div>`;
+
+  // ── Summary info cells (read-only top section) ───────────────────
   const cells = [
-    { label:'Вид транспорта', value: s.mode ? `${modeIcons[s.mode]||''} ${modeLabels[s.mode]||s.mode}` : '—', cls:'' },
-    { label:'Базис поставки (Incoterms)', value: s.incoterms || '—', cls:'mono accent' },
-    { label:'Порт отгрузки (от)', value: s.from || '—', cls:'' },
-    { label:'Порт/место назначения', value: s.to || '—', cls:'' },
-    { label:'Экспедитор', value: fwdName, cls:'' },
-    { label:'Таможенный брокер', value: brkName, cls:'' },
-    { label:'Дата оплаты (план)', value: s.dates?.payment || '—', cls:'mono' },
-    { label:'Готовность товара', value: s.dates?.production || '—', cls:'mono' },
-    { label:'ETD — дата отгрузки', value: s.dates?.etd || '—', cls:'mono green' },
-    { label:'ETA — прибытие', value: s.dates?.eta || '—', cls:'mono green' },
-    { label:'Таможенное оформление', value: s.dates?.customs || '—', cls:'mono' },
-    { label:'Доставка на склад', value: s.dates?.delivery || '—', cls:'mono' },
+    { label:'Вид транспорта',        value: mode ? `${modeIcons[mode]||''} ${modeLabels[mode]||mode}` : '—' },
+    { label:'Базис (Incoterms)',     value: s.incoterms || '—', cls:'mono accent' },
+    { label:'Откуда',               value: s.from || '—' },
+    { label:'Куда',                 value: s.to   || '—' },
+    { label:'ETD',                  value: s.dates?.etd || '—', cls:'mono green' },
+    { label:'ETA',                  value: s.dates?.eta || '—', cls:'mono green' },
+    { label:'Экспедитор',           value: fwdName },
+    { label:'Таможенный брокер',    value: brkName },
   ];
 
-  el.innerHTML = `<div class="shp-logistics-grid">
-    ${cells.map(c => `<div class="shp-lg-cell">
-      <div class="shp-lg-label">${c.label}</div>
-      <div class="shp-lg-val ${c.cls}">${c.value}</div>
-    </div>`).join('')}
-  </div>
-  ${(s.events||[]).length ? `
-    <div style="margin-top:16px">
+  // ── Transport-specific fields ────────────────────────────────────
+  const showSea   = mode === 'sea'  || mode === 'multi';
+  const showAir   = mode === 'air'  || mode === 'multi';
+  const showRail  = mode === 'rail' || mode === 'multi';
+  const showRoad  = mode === 'road' || mode === 'multi';
+
+  const seaBlock = showSea ? `
+    <div style="margin-bottom:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#2563EB;font-family:'Fira Code',monospace">🚢 Морская перевозка</div>
+    <div class="form-grid cols-3" style="margin-bottom:12px">
+      ${field('Номер букинга (Booking #)',   inp('booking',  lg.booking,  'HLCU1234567'))}
+      ${field('Судоходная линия',            inp('line',     lg.line,     'Hapag-Lloyd / COSCO...'))}
+      ${field('Судно (Vessel)',              inp('vessel',   lg.vessel,   'MSC ANNA'))}
+      ${field('Номер рейса (Voyage)',        inp('voyage',   lg.voyage,   'AE-1 / 032W'))}
+      ${field('Свободное время (free days)', inp('free_days',lg.free_days,'14','number','min="0" max="60"'))}
+      ${field('Порт транзита (если есть)',   inp('transit_port', lg.transit_port, 'Colombo / Singapore...'))}
+      ${field('Контейнеры (через запятую)', `<textarea id="shplg-containers" rows="2" placeholder="TCKU1234567, MSCU7654321"
+        style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px;font-family:'Fira Code',monospace;resize:vertical">${lg.containers||''}</textarea>`, 'span3')}
+    </div>` : '';
+
+  const airBlock = showAir ? `
+    <div style="margin-bottom:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#7C3AED;font-family:'Fira Code',monospace">✈️ Авиаперевозка</div>
+    <div class="form-grid cols-3" style="margin-bottom:12px">
+      ${field('Номер AWB',             inp('awb',      lg.awb,      '176-12345678'))}
+      ${field('Авиакомпания',          inp('airline',  lg.airline,  'Emirates / Aeroflot...'))}
+      ${field('Номер рейса',           inp('flight',   lg.flight,   'EK-631'))}
+    </div>` : '';
+
+  const railBlock = showRail ? `
+    <div style="margin-bottom:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#B45309;font-family:'Fira Code',monospace">🚂 Железнодорожная перевозка</div>
+    <div class="form-grid cols-3" style="margin-bottom:12px">
+      ${field('Накладная СМГС / CIM',   inp('waybill',  lg.waybill,  'СМГС 12345'))}
+      ${field('Номер поезда',           inp('train',    lg.train,    '1234/1235'))}
+      ${field('Вагоны (через запятую)', inp('wagons',   lg.wagons,   '12345678, 87654321'))}
+    </div>` : '';
+
+  const roadBlock = showRoad ? `
+    <div style="margin-bottom:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#065F46;font-family:'Fira Code',monospace">🚛 Автомобильная перевозка</div>
+    <div class="form-grid cols-3" style="margin-bottom:12px">
+      ${field('Номер CMR',                inp('cmr',    lg.cmr,    'CMR-2026-001'))}
+      ${field('Перевозчик',              inp('carrier', lg.carrier, 'ООО Транслогик'))}
+      ${field('Тягач / Прицеп',          inp('truck',  lg.truck,  'А123ВС178 / АА4567'))}
+      ${field('Водитель (ФИО)',           inp('driver', lg.driver, 'Иванов Иван Иванович'))}
+    </div>` : '';
+
+  el.innerHTML = `
+    <!-- Summary info -->
+    <div class="shp-logistics-grid" style="margin-bottom:20px">
+      ${cells.map(c => `<div class="shp-lg-cell">
+        <div class="shp-lg-label">${c.label}</div>
+        <div class="shp-lg-val ${c.cls||''}">${c.value}</div>
+      </div>`).join('')}
+    </div>
+
+    <!-- Transport-specific tracking fields -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:14px">🗂 Детали перевозки</div>
+      ${seaBlock}${airBlock}${railBlock}${roadBlock}
+      <button onclick="shpSaveLogistics()" style="padding:7px 20px;background:var(--co-accent);color:white;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;margin-top:4px">
+        💾 Сохранить детали перевозки
+      </button>
+    </div>
+
+    <!-- Event history -->
+    ${(s.events||[]).length ? `
+    <div>
       <div class="block-title" style="margin-bottom:8px">📋 История событий</div>
       ${[...(s.events||[])].reverse().map(e => `<div class="shp-event-row">
         <div class="shp-event-icon">${e.icon||'•'}</div>
@@ -19229,6 +19301,39 @@ function shpRenderLogistics(s) {
         <div class="shp-event-date">${e.date||''}</div>
       </div>`).join('')}
     </div>` : ''}`;
+}
+
+function shpSaveLogistics() {
+  const s = DB_shipments.find(_shpCurrent);
+  if (!s) return;
+  const g = id => document.getElementById('shplg-' + id);
+  const v = id => g(id)?.value?.trim() || '';
+  s.logistics = {
+    // Sea
+    booking:      v('booking'),
+    line:         v('line'),
+    vessel:       v('vessel'),
+    voyage:       v('voyage'),
+    free_days:    parseInt(v('free_days')) || 14,
+    transit_port: v('transit_port'),
+    containers:   v('containers'),
+    // Air
+    awb:          v('awb'),
+    airline:      v('airline'),
+    flight:       v('flight'),
+    // Rail
+    waybill:      v('waybill'),
+    train:        v('train'),
+    wagons:       v('wagons'),
+    // Road
+    cmr:          v('cmr'),
+    carrier:      v('carrier'),
+    truck:        v('truck'),
+    driver:       v('driver'),
+  };
+  shipmentsSyncToDB(s);
+  shipmentsSave();
+  showToast('✅ Детали перевозки сохранены');
 }
 
 /* ── TAB: CUSTOMS ───────────────────────────────────────────────── */
