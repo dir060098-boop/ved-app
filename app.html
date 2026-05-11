@@ -7499,6 +7499,7 @@
           <div class="shp-chip"        data-shp-f="in_transit" onclick="shpSetFilter('in_transit',this)">В пути</div>
           <div class="shp-chip"        data-shp-f="customs"    onclick="shpSetFilter('customs',this)">Таможня</div>
           <div class="shp-chip"        data-shp-f="delivered"  onclick="shpSetFilter('delivered',this)">Доставлено</div>
+          <div class="shp-chip"        data-shp-f="archived"   onclick="shpSetFilter('archived',this)">📁 Архив</div>
         </div>
         <div style="flex:1"></div>
         <input id="shp-search" placeholder="Номер, поставщик, контракт..."
@@ -7602,6 +7603,7 @@
           <button class="gen-btn" onclick="shpEditCurrent()"
                   style="margin:0;padding:8px 18px;font-size:12px">✏ Редактировать</button>
           <button class="admin-action-btn" onclick="shpAdvanceStage()" id="shp-advance-btn">▶ Следующий этап</button>
+          <button class="admin-action-btn" id="shp-archive-btn" onclick="shpArchiveCurrent()" style="background:rgba(196,148,58,0.1);border-color:var(--gold);color:var(--gold)">📁 В архив</button>
           <button class="admin-action-btn danger" onclick="shpDeleteCurrent()" style="margin-left:auto">🗑 Удалить</button>
           <button class="gen-btn secondary" onclick="shpCloseDetail()"
                   style="margin:0;padding:8px 18px;font-size:12px">Закрыть</button>
@@ -18827,6 +18829,7 @@ const SHP_STATUSES = {
   customs:    { label:'Таможня',   icon:'🛃', cls:'customs'    },
   delivered:  { label:'Доставлено',icon:'✅', cls:'delivered'  },
   cancelled:  { label:'Отменена',  icon:'❌', cls:'cancelled'  },
+  archived:   { label:'Архив',     icon:'📁', cls:'cancelled'  },
 };
 
 const SHP_DOC_GROUPS = [
@@ -18972,14 +18975,15 @@ function shpUpdateKPIs() {
   const all = DB_shipments.all();
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
 
-  set('shp-kpi-total',    all.length);
-  set('shp-kpi-active',   all.filter(s => s.status === 'active').length);
-  set('shp-kpi-transit',  all.filter(s => s.status === 'in_transit').length);
-  set('shp-kpi-customs',  all.filter(s => s.status === 'customs').length);
-  set('shp-kpi-delivered',all.filter(s => s.status === 'delivered').length);
+  const live = all.filter(s => s.status !== 'archived');
+  set('shp-kpi-total',    live.length);
+  set('shp-kpi-active',   live.filter(s => s.status === 'active').length);
+  set('shp-kpi-transit',  live.filter(s => s.status === 'in_transit').length);
+  set('shp-kpi-customs',  live.filter(s => s.status === 'customs').length);
+  set('shp-kpi-delivered',live.filter(s => s.status === 'delivered').length);
 
-  // Total USD value (simplified — all currencies counted as-is)
-  const total = all.reduce((s, x) => s + (parseFloat(x.total_value) || 0), 0);
+  // Total USD value (live only — archived excluded)
+  const total = live.reduce((s, x) => s + (parseFloat(x.total_value) || 0), 0);
   set('shp-kpi-value', total >= 1000000
     ? (total/1000000).toFixed(1) + 'M'
     : total >= 1000 ? (total/1000).toFixed(0) + 'K'
@@ -18995,7 +18999,14 @@ function shpLoad() {
   const q = (document.getElementById('shp-search')?.value || '').toLowerCase().trim();
   let rows = DB_shipments.all();
 
-  if (_shpFilter !== 'all') rows = rows.filter(s => s.status === _shpFilter);
+  if (_shpFilter === 'archived') {
+    rows = rows.filter(s => s.status === 'archived');
+  } else if (_shpFilter !== 'all') {
+    rows = rows.filter(s => s.status === _shpFilter);
+  } else {
+    // "all" excludes archived — use 📁 Архив chip to see them
+    rows = rows.filter(s => s.status !== 'archived');
+  }
   if (q) rows = rows.filter(s =>
     [s.shipment_number, s.contract_id, s.notes,
      shpSupName(s.supplier_id), s.from, s.to]
@@ -19117,6 +19128,18 @@ function shpOpenDetail(id) {
 
   const rfqLink = s.rfq_id ? DB_rfq_requests.find(s.rfq_id) : null;
   const prLink  = rfqLink?.purchase_request_id ? DB_purchase_requests.find(rfqLink.purchase_request_id) : null;
+
+  // PTK retention pill for archived shipments
+  let ptkPill = '';
+  if (s.status === 'archived' && s.ptk_retention_until) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const rd = new Date(s.ptk_retention_until + 'T00:00:00');
+    const diff = Math.round((rd - today) / 86400000);
+    const dStr = s.ptk_retention_until.split('-').reverse().join('.');
+    const color = diff < 0 ? '#ef4444' : diff < 90 ? '#f59e0b' : '#6ee7b7';
+    ptkPill = `<div class="shp-head-pill" style="border-color:${color};color:${color}">🗂 ПТК до ${dStr}${diff>=0?` (${diff} дн.)`:'(истёк)'}</div>`;
+  }
+
   document.getElementById('shpd-meta').innerHTML = `
     ${prLink ? `<div class="shp-head-pill" style="cursor:pointer" onclick="showSection('purchase');setTimeout(()=>prOpenDetail('${prLink.id}'),200)">📋 ${prLink.request_number||'Заявка'}</div>` : ''}
     ${rfqLink ? `<div class="shp-head-pill">💬 RFQ ${rfqLink.rfq_number||''}</div>` : ''}
@@ -19125,7 +19148,12 @@ function shpOpenDetail(id) {
     <div class="shp-head-pill">💵 <b>${s.total_value ? fmtNum(s.total_value)+' '+(s.currency||'') : '—'}</b></div>
     ${s.dates?.eta ? `<div class="shp-head-pill">📅 ETA <b>${s.dates.eta}</b></div>` : ''}
     ${s.mode ? `<div class="shp-head-pill">${{sea:'🚢',air:'✈',rail:'🚂',road:'🚛',multi:'🔄'}[s.mode]||'🚢'} <b>${s.from||''} → ${s.to||''}</b></div>` : ''}
+    ${ptkPill}
   `;
+
+  // Archive button visibility
+  const archBtn = document.getElementById('shp-archive-btn');
+  if (archBtn) archBtn.style.display = (s.status === 'delivered' || s.status === 'archived') ? '' : 'none';
 
   // Pipeline — compact colored progress bar in modal header
   const stage = parseInt(s.current_stage) || 0;
@@ -19321,7 +19349,47 @@ function shpRenderDocs(s) {
   if (!el) return;
 
   const recv = docs.filter(d => d.received).length;
+
+  // PTK retention block
+  let ptkBlock = '';
+  if (s.ptk_date || s.ptk_retention_until) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const rd = s.ptk_retention_until ? new Date(s.ptk_retention_until + 'T00:00:00') : null;
+    const diff = rd ? Math.round((rd - today) / 86400000) : null;
+    const dStr = s.ptk_retention_until ? s.ptk_retention_until.split('-').reverse().join('.') : '—';
+    const barColor = diff === null ? 'var(--text3)' : diff < 0 ? '#ef4444' : diff < 365 ? '#f59e0b' : '#22c55e';
+    const statusText = diff === null ? '—' : diff < 0 ? `Срок истёк ${Math.abs(diff)} дн. назад` : `Осталось ${diff} дн.`;
+    ptkBlock = `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:18px">🗂</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:13px">Пакет таможенных документов (ПТК)</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">ст. 98 ТК ЕАЭС · Срок хранения 5 лет с даты выпуска ДТ</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:var(--text3)">Дата выпуска ДТ</div>
+          <div style="font-weight:700;font-family:'Fira Code',monospace;font-size:13px">${s.ptk_date ? s.ptk_date.split('-').reverse().join('.') : '—'}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:var(--text3)">Хранить до</div>
+          <div style="font-weight:700;font-family:'Fira Code',monospace;font-size:13px;color:${barColor}">${dStr}</div>
+          <div style="font-size:10px;color:${barColor}">${statusText}</div>
+        </div>
+      </div>
+      ${diff !== null ? `
+      <div style="margin-top:10px;height:4px;border-radius:2px;background:var(--surface3);overflow:hidden">
+        <div style="height:100%;border-radius:2px;background:${barColor};width:${Math.min(100,Math.max(0,Math.round((1 - diff/(365*5))*100)))}%"></div>
+      </div>` : ''}
+    </div>`;
+  } else if (s.status === 'archived') {
+    ptkBlock = `<div style="background:var(--surface2);border:1px dashed var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:12px;color:var(--text3)">
+      🗂 Срок хранения ПТК не задан. <a href="#" onclick="shpArchiveCurrent();return false" style="color:var(--co-accent)">Указать дату ДТ →</a>
+    </div>`;
+  }
+
   el.innerHTML = `
+    ${ptkBlock}
     <div style="margin-bottom:12px;display:flex;align-items:center;gap:10px">
       <div style="font-size:12px;color:var(--text3)">Получено документов:</div>
       <div style="font-weight:800;font-size:14px;color:${recv===docs.length?'#15803d':'var(--co-accent)'}">${recv} / ${docs.length}</div>
@@ -20010,10 +20078,52 @@ function shpEditCurrent() {
 
 function shpDeleteCurrent() {
   if (!_shpCurrent) return;
+  if (!confirm('Удалить поставку безвозвратно? Для сохранения истории используйте «В архив».')) return;
   DB_shipments.delete(_shpCurrent);
   shpCloseDetail();
   shpLoad();
   showToast('🗑 Поставка удалена');
+}
+
+function shpArchiveCurrent() {
+  if (!_shpCurrent) return;
+  const s = DB_shipments.find(_shpCurrent);
+  if (!s) return;
+
+  if (s.status === 'archived') {
+    // Unarchive
+    s.status = 'delivered';
+    delete s.archived_at;
+    shipmentsSyncToDB(s);
+    shipmentsSave();
+    shpOpenDetail(_shpCurrent);
+    shpLoad();
+    showToast('↩ Поставка восстановлена из архива');
+    return;
+  }
+
+  // Ask for DT date (дата выпуска ТД)
+  const dtDateStr = prompt(
+    'Укажите дату выпуска таможенной декларации (ДТ):\n(формат: ГГГГ-ММ-ДД, например ' + new Date().toISOString().slice(0,10) + ')\n\nСрок хранения ПТК = 5 лет с даты выпуска ДТ (ст. 98 ТК ЕАЭС)',
+    s.ptk_date || s.dates?.customs_done || new Date().toISOString().slice(0, 10)
+  );
+  if (dtDateStr === null) return; // cancelled
+
+  const dtDate = dtDateStr.trim() || new Date().toISOString().slice(0, 10);
+  const retentionDate = new Date(dtDate + 'T00:00:00');
+  retentionDate.setFullYear(retentionDate.getFullYear() + 5);
+  const retentionStr = retentionDate.toISOString().slice(0, 10);
+
+  s.status              = 'archived';
+  s.archived_at         = new Date().toISOString().slice(0, 10);
+  s.ptk_date            = dtDate;
+  s.ptk_retention_until = retentionStr;
+
+  shipmentsSyncToDB(s);
+  shipmentsSave();
+  shpOpenDetail(_shpCurrent);
+  shpLoad();
+  showToast(`📁 Поставка архивирована · ПТК хранить до ${retentionStr.split('-').reverse().join('.')}`);
 }
 
 
