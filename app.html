@@ -7492,6 +7492,12 @@
       <div class="shp-toolbar">
         <button class="gen-btn" onclick="shpOpenForm(null)"
                 style="margin:0;padding:8px 20px;font-size:12px">+ Новая поставка</button>
+        <button class="gen-btn secondary" onclick="exportShipmentsExcel()"
+                style="margin:0;padding:8px 14px;font-size:12px;border-color:rgba(31,122,99,0.5);color:var(--green);background:rgba(31,122,99,0.07)">⬇ Excel</button>
+        <button class="gen-btn secondary" onclick="exportVedReport()"
+                style="margin:0;padding:8px 14px;font-size:12px;border-color:rgba(196,148,58,0.5);color:var(--gold);background:rgba(196,148,58,0.07)">⬇ Отчёт ВЭД</button>
+        <button class="gen-btn secondary" onclick="export1CVed()"
+                style="margin:0;padding:8px 14px;font-size:12px;border-color:rgba(28,53,94,0.5);color:#6F8FBF;background:rgba(28,53,94,0.07)">⬇ 1С</button>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <div class="shp-chip active" data-shp-f="all"    onclick="shpSetFilter('all',this)">Все</div>
           <div class="shp-chip"        data-shp-f="draft"  onclick="shpSetFilter('draft',this)">Черновик</div>
@@ -13673,6 +13679,354 @@ function exportBudgetExcel() {
 
 
 
+
+// ════════════════════════════════════════════
+// ── EXPORT: SHIPMENTS / VED REPORT / 1С ──
+// ════════════════════════════════════════════
+
+function _xlsHeader(ws, row, cols, titleColor) {
+  cols.forEach((_, ci) => {
+    const a = XLSX.utils.encode_cell({ r: row, c: ci });
+    if (ws[a]) ws[a].s = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: titleColor || '1F7A63' } } };
+  });
+}
+
+/* ── 1. Реестр поставок Excel ──────────────────────────────── */
+function exportShipmentsExcel() {
+  const all = DB_shipments.all();
+  if (!all.length) { alert('Нет поставок для экспорта'); return; }
+  const wb = XLSX.utils.book_new();
+
+  /* Sheet 1 — Реестр */
+  const hdr = ['№ поставки','Статус','Поставщик','Контракт','Откуда','Куда','Вид транспорта',
+    'Инкотермс','Валюта','Сумма','ETD','ETA','Дата раст.','Вес (кг)','Объём (м³)',
+    'Этап','Дата архив.','Дата выпуска ДТ','ПТК хранить до','Примечание'];
+  const stLabel = s => (SHP_STATUSES[s] || SHP_STATUSES.draft).label;
+  const modeLabel = { sea:'Море', air:'Авиа', rail:'ЖД', road:'Авто', multi:'Мультимодаль' };
+  const rows = [
+    ['РЕЕСТР ПОСТАВОК · ' + new Date().toLocaleDateString('ru-RU'), ...Array(hdr.length - 1).fill('')],
+    hdr,
+    ...all.map(s => [
+      s.shipment_number || '',
+      stLabel(s.status),
+      shpSupName(s.supplier_id),
+      s.contract_id || '',
+      s.from || '',
+      s.to || '',
+      modeLabel[s.mode] || s.mode || '',
+      s.incoterms || '',
+      s.currency || '',
+      parseFloat(s.total_value) || 0,
+      s.dates?.etd || '',
+      s.dates?.eta || '',
+      s.dates?.customs_done || '',
+      parseFloat(s.weight_kg) || '',
+      parseFloat(s.volume_m3) || '',
+      s.current_stage != null ? `${s.current_stage}/8` : '',
+      s.archived_at || '',
+      s.ptk_date || '',
+      s.ptk_retention_until || '',
+      s.notes || '',
+    ]),
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(rows);
+  ws1['!cols'] = [14,10,22,16,14,14,14,10,8,12,11,11,11,10,10,8,11,11,11,28].map(w => ({ wch: w }));
+  ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: hdr.length - 1 } }];
+  if (ws1['A1']) ws1['A1'].s = { font: { bold: true, sz: 12, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '0B1F3A' } }, alignment: { horizontal: 'center' } };
+  _xlsHeader(ws1, 1, hdr, '1F7A63');
+  XLSX.utils.book_append_sheet(wb, ws1, 'Реестр поставок');
+
+  /* Sheet 2 — Товарный состав */
+  const hdr2 = ['№ поставки','Контракт','Поставщик','Артикул','Наименование','Ед.','Кол-во','Цена','Сумма','Валюта','HS-код','Страна'];
+  const rows2 = [['ТОВАРНЫЙ СОСТАВ ПОСТАВОК', ...Array(hdr2.length - 1).fill('')], hdr2];
+  all.forEach(s => {
+    (s.items || []).forEach(it => {
+      rows2.push([
+        s.shipment_number || '', s.contract_id || '', shpSupName(s.supplier_id),
+        it.sku || '', it.name || '', it.unit || '', parseFloat(it.qty) || 0,
+        parseFloat(it.price) || 0, Math.round((it.qty || 0) * (it.price || 0) * 100) / 100,
+        s.currency || '', it.hs_code || '', it.country || '',
+      ]);
+    });
+  });
+  if (rows2.length > 2) {
+    const ws2 = XLSX.utils.aoa_to_sheet(rows2);
+    ws2['!cols'] = [14, 16, 20, 12, 36, 6, 8, 10, 12, 8, 10, 12].map(w => ({ wch: w }));
+    ws2['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: hdr2.length - 1 } }];
+    if (ws2['A1']) ws2['A1'].s = { font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '0B1F3A' } }, alignment: { horizontal: 'center' } };
+    _xlsHeader(ws2, 1, hdr2, '1C355E');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Товары');
+  }
+
+  XLSX.writeFile(wb, 'Реестр_поставок_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  showToast('✅ Реестр поставок экспортирован');
+}
+
+/* ── 2. Сводный ВЭД-отчёт (мульти-лист) ───────────────────── */
+function exportVedReport() {
+  const wb = XLSX.utils.book_new();
+  const dateStr = new Date().toLocaleDateString('ru-RU');
+
+  /* Поставки */
+  const allShp = DB_shipments.all();
+  const hdrS = ['№ поставки','Статус','Поставщик','Контракт','Маршрут','Транспорт','Сумма','Валюта','ETD','ETA','Этап'];
+  const rowsS = [['ПОСТАВКИ · ' + dateStr, ...Array(hdrS.length - 1).fill('')], hdrS,
+    ...allShp.map(s => [
+      s.shipment_number || '', (SHP_STATUSES[s.status] || SHP_STATUSES.draft).label,
+      shpSupName(s.supplier_id), s.contract_id || '',
+      [s.from, s.to].filter(Boolean).join(' → '),
+      { sea:'🚢 Море', air:'✈️ Авиа', rail:'🚂 ЖД', road:'🚛 Авто', multi:'🔄 Мульти' }[s.mode] || '',
+      parseFloat(s.total_value) || 0, s.currency || '',
+      s.dates?.etd || '', s.dates?.eta || '',
+      s.current_stage != null ? `${s.current_stage}/8` : '',
+    ]),
+  ];
+  const wsS = XLSX.utils.aoa_to_sheet(rowsS);
+  wsS['!cols'] = [14,12,22,16,22,12,12,8,11,11,8].map(w => ({ wch: w }));
+  wsS['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:hdrS.length-1} }];
+  if (wsS['A1']) wsS['A1'].s = { font:{bold:true,sz:12,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'0B1F3A'}}, alignment:{horizontal:'center'} };
+  _xlsHeader(wsS, 1, hdrS, '1F7A63');
+  XLSX.utils.book_append_sheet(wb, wsS, 'Поставки');
+
+  /* Бюджеты */
+  if (typeof budgets !== 'undefined' && budgets.length) {
+    const hdrB = ['№ PO','Поставщик','Груз','Кол-во','Ед.','Товар план ₽','Лог план ₽','Тамож план ₽','Итого план ₽','Итого факт ₽','Откл. ₽','% исп.','Себест. ₽/ед','НДС к вычету'];
+    const rowsB = [['БЮДЖЕТЫ · ' + dateStr, ...Array(hdrB.length-1).fill('')], hdrB,
+      ...budgets.map(b => {
+        const c = bgCalc(b);
+        return [b.po, b.supplier||'', b.cargo||'', b.qty||'', b.unit||'',
+          Math.round(c.groups.goods?.plan)||0, Math.round(c.groups.logistics?.plan)||0,
+          Math.round(c.groups.customs?.plan)||0, Math.round(c.totalPlan)||0,
+          Math.round(c.totalFact)||0, Math.round(c.delta)||0,
+          c.totalPlan>0 ? (c.totalFact/c.totalPlan*100).toFixed(1)+'%' : '—',
+          b.qty && c.cogs ? Math.round(c.cogs) : '—',
+          b.vatDeductible ? 'Да (ОСНО)' : 'Нет (УСН)'];
+      }),
+    ];
+    const wsB = XLSX.utils.aoa_to_sheet(rowsB);
+    wsB['!cols'] = [16,20,22,8,6,14,12,12,14,14,12,8,12,12].map(w=>({wch:w}));
+    wsB['!merges'] = [{s:{r:0,c:0},e:{r:0,c:hdrB.length-1}}];
+    if(wsB['A1'])wsB['A1'].s={font:{bold:true,sz:12,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0B1F3A'}},alignment:{horizontal:'center'}};
+    _xlsHeader(wsB, 1, hdrB, 'C4943A');
+    XLSX.utils.book_append_sheet(wb, wsB, 'Бюджеты');
+  }
+
+  /* Платежи из поставок */
+  const payRows = [['ПЛАТЁЖНЫЙ КАЛЕНДАРЬ · ' + dateStr]];
+  const hdrP = ['№ поставки','Контракт','Поставщик','Дата платежа','Назначение','Сумма','Валюта','Статус','№ п/п'];
+  payRows.push(hdrP);
+  allShp.forEach(s => {
+    (s.payments || []).forEach(p => {
+      payRows.push([
+        s.shipment_number || '', s.contract_id || '', shpSupName(s.supplier_id),
+        p.date || '', p.label || '', parseFloat(p.amount) || 0, s.currency || '',
+        p.status === 'paid' ? 'Оплачено' : p.status === 'pending' ? 'Ожидается' : p.status,
+        p.ppNum || '',
+      ]);
+    });
+  });
+  if (payRows.length > 2) {
+    const wsP = XLSX.utils.aoa_to_sheet(payRows);
+    wsP['!cols'] = [14,16,20,12,28,12,8,12,12].map(w=>({wch:w}));
+    wsP['!merges'] = [{s:{r:0,c:0},e:{r:0,c:hdrP.length-1}}];
+    if(wsP['A1'])wsP['A1'].s={font:{bold:true,sz:12,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0B1F3A'}},alignment:{horizontal:'center'}};
+    _xlsHeader(wsP, 1, hdrP, '1C355E');
+    XLSX.utils.book_append_sheet(wb, wsP, 'Платёж. календарь');
+  }
+
+  /* ПТК — архив */
+  const archived = allShp.filter(s => s.status === 'archived' && s.ptk_retention_until);
+  if (archived.length) {
+    const hdrA = ['№ поставки','Контракт','Поставщик','Архивирован','Дата выпуска ДТ','Хранить до','Осталось дней'];
+    const today = new Date(); today.setHours(0,0,0,0);
+    const rowsA = [['АРХИВ ПТК · ' + dateStr, ...Array(hdrA.length-1).fill('')], hdrA,
+      ...archived.map(s => {
+        const rd = new Date(s.ptk_retention_until + 'T00:00:00');
+        const diff = Math.round((rd - today) / 86400000);
+        return [s.shipment_number||'', s.contract_id||'', shpSupName(s.supplier_id),
+          s.archived_at||'', s.ptk_date||'', s.ptk_retention_until||'', diff];
+      }),
+    ];
+    const wsA = XLSX.utils.aoa_to_sheet(rowsA);
+    wsA['!cols'] = [14,16,20,12,14,14,12].map(w=>({wch:w}));
+    wsA['!merges'] = [{s:{r:0,c:0},e:{r:0,c:hdrA.length-1}}];
+    if(wsA['A1'])wsA['A1'].s={font:{bold:true,sz:12,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0B1F3A'}},alignment:{horizontal:'center'}};
+    _xlsHeader(wsA, 1, hdrA, '7B5C2A');
+    XLSX.utils.book_append_sheet(wb, wsA, 'Архив ПТК');
+  }
+
+  /* Договоры + репатриация */
+  const contracts = DB_contracts.all();
+  if (contracts.length) {
+    const hdrC = ['Номер договора','Поставщик','Дата','Инкотермс','Валюта','Сумма','УНК','Репатриация до','Банк уведомлён','Статус'];
+    const today = new Date(); today.setHours(0,0,0,0);
+    const rowsC = [['РЕЕСТР ДОГОВОРОВ · ' + dateStr, ...Array(hdrC.length-1).fill('')], hdrC,
+      ...contracts.map(c => {
+        let repatStatus = '—';
+        if (c.repatDate) {
+          const rd = new Date(c.repatDate + 'T00:00:00');
+          const diff = Math.round((rd - today) / 86400000);
+          repatStatus = diff < 0 ? `Просрочено (${Math.abs(diff)} дн.)` : `${diff} дн.`;
+        }
+        return [c.num||'', c.sellerName||'', c.date||'', c.inco||'', c.currency||'',
+          c.totalAmount||'', c.unk||'', c.repatDate||'', c.bankNotifyDate||'', repatStatus];
+      }),
+    ];
+    const wsC = XLSX.utils.aoa_to_sheet(rowsC);
+    wsC['!cols'] = [18,22,11,10,8,12,20,12,12,16].map(w=>({wch:w}));
+    wsC['!merges'] = [{s:{r:0,c:0},e:{r:0,c:hdrC.length-1}}];
+    if(wsC['A1'])wsC['A1'].s={font:{bold:true,sz:12,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0B1F3A'}},alignment:{horizontal:'center'}};
+    _xlsHeader(wsC, 1, hdrC, '1F7A63');
+    XLSX.utils.book_append_sheet(wb, wsC, 'Договоры');
+  }
+
+  XLSX.writeFile(wb, 'ВЭД_Отчёт_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  showToast('✅ Сводный ВЭД-отчёт экспортирован');
+}
+
+/* ── 3. Выгрузка для 1С ────────────────────────────────────── */
+function export1CVed() {
+  const allShp = DB_shipments.all();
+  const delivered = allShp.filter(s => s.status === 'delivered' || s.status === 'archived');
+  if (!delivered.length && !allShp.length) { alert('Нет поставок для выгрузки'); return; }
+  const wb = XLSX.utils.book_new();
+
+  /* Sheet 1: Поступление товаров — для 1С */
+  const note1C = '1С: Покупки → Поступление (акты, накладные) → Товары';
+  const hdrG = ['Дата','№ документа','Контрагент','ИНН контрагента','Договор','Номенклатура',
+    'Артикул','Ед. изм.','Количество','Цена (без НДС)','Сумма (без НДС)',
+    'НДС %','НДС сумма','Сумма (с НДС)','Счёт учёта','Счёт НДС','Страна происх.','ГТД №'];
+  const rowsG = [
+    ['ПОСТУПЛЕНИЕ ТОВАРОВ (импорт) — выгрузка для 1С:Предприятие · ' + new Date().toLocaleDateString('ru-RU'), ...Array(hdrG.length-1).fill('')],
+    [note1C, ...Array(hdrG.length-1).fill('')],
+    hdrG,
+  ];
+  const vatRate = 0.22;
+  allShp.forEach(s => {
+    const docDate = s.dates?.customs_done || s.dates?.eta || s.dates?.etd || '';
+    const dtNum   = s.customs?.dt_number || '';
+    const inn     = ''; // supplier INN not stored — accountant fills
+    (s.items || []).forEach(it => {
+      const sumNoVat = Math.round((it.qty || 0) * (it.price || 0) * 100) / 100;
+      const vatSum   = Math.round(sumNoVat * vatRate * 100) / 100;
+      const sumVat   = Math.round((sumNoVat + vatSum) * 100) / 100;
+      rowsG.push([
+        docDate,
+        s.shipment_number || '',
+        shpSupName(s.supplier_id),
+        inn,
+        s.contract_id || '',
+        it.name || '',
+        it.sku || '',
+        it.unit || 'шт',
+        parseFloat(it.qty) || 0,
+        parseFloat(it.price) || 0,
+        sumNoVat,
+        '22%',
+        vatSum,
+        sumVat,
+        '41.01',  // Товары на складах
+        '19.05',  // НДС при импорте товаров
+        it.country || '',
+        dtNum,
+      ]);
+    });
+    // Если нет строк товаров — строка-заглушка
+    if (!s.items || s.items.length === 0) {
+      rowsG.push([docDate, s.shipment_number||'', shpSupName(s.supplier_id), inn,
+        s.contract_id||'', '(заполнить)', '', 'шт', '', parseFloat(s.total_value)||0,
+        '', '22%', '', '', '41.01', '19.05', '', dtNum]);
+    }
+  });
+  const wsG = XLSX.utils.aoa_to_sheet(rowsG);
+  wsG['!cols'] = [11,14,22,13,16,36,12,6,9,12,12,6,10,12,8,8,12,16].map(w=>({wch:w}));
+  wsG['!merges'] = [{s:{r:0,c:0},e:{r:0,c:hdrG.length-1}},{s:{r:1,c:0},e:{r:1,c:hdrG.length-1}}];
+  if(wsG['A1'])wsG['A1'].s={font:{bold:true,sz:11,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0B1F3A'}},alignment:{horizontal:'center'}};
+  if(wsG['A2'])wsG['A2'].s={font:{italic:true,color:{rgb:'444444'}},fill:{fgColor:{rgb:'F0F0F0'}},alignment:{horizontal:'center'}};
+  _xlsHeader(wsG, 2, hdrG, '1C355E');
+  XLSX.utils.book_append_sheet(wb, wsG, '1С Поступление товаров');
+
+  /* Sheet 2: Платёжные поручения — для 1С */
+  const note1CP = '1С: Казначейство → Платёжные поручения → Оплата поставщику';
+  const hdrPP = ['Дата','№ п/п','Контрагент','Договор','Назначение платежа',
+    'Сумма в валюте','Валюта','Курс ЦБ (заполнить)','Сумма в руб.','Статус','Счёт дт','Счёт кт'];
+  const rowsPP = [
+    ['ПЛАТЁЖНЫЕ ПОРУЧЕНИЯ — выгрузка для 1С:Предприятие · ' + new Date().toLocaleDateString('ru-RU'), ...Array(hdrPP.length-1).fill('')],
+    [note1CP, ...Array(hdrPP.length-1).fill('')],
+    hdrPP,
+  ];
+  allShp.forEach(s => {
+    (s.payments || []).forEach(p => {
+      rowsPP.push([
+        p.date || '',
+        p.ppNum || '(заполнить)',
+        shpSupName(s.supplier_id),
+        s.contract_id || '',
+        `${p.label || 'Оплата по контракту'} ${s.shipment_number || ''} ${s.contract_id || ''}`.trim(),
+        parseFloat(p.amount) || 0,
+        s.currency || '',
+        '', // курс ЦБ — заполняет бухгалтер
+        '', // сумма в руб — заполняет бухгалтер
+        p.status === 'paid' ? 'Исполнен' : 'Ожидается',
+        '60.21', // Расчёты с иностранными поставщиками
+        '52',    // Валютный счёт
+      ]);
+    });
+  });
+  if (rowsPP.length > 3) {
+    const wsPP = XLSX.utils.aoa_to_sheet(rowsPP);
+    wsPP['!cols'] = [11,10,22,16,38,13,8,12,12,10,8,8].map(w=>({wch:w}));
+    wsPP['!merges'] = [{s:{r:0,c:0},e:{r:0,c:hdrPP.length-1}},{s:{r:1,c:0},e:{r:1,c:hdrPP.length-1}}];
+    if(wsPP['A1'])wsPP['A1'].s={font:{bold:true,sz:11,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0B1F3A'}},alignment:{horizontal:'center'}};
+    if(wsPP['A2'])wsPP['A2'].s={font:{italic:true,color:{rgb:'444444'}},fill:{fgColor:{rgb:'F0F0F0'}},alignment:{horizontal:'center'}};
+    _xlsHeader(wsPP, 2, hdrPP, 'C4943A');
+    XLSX.utils.book_append_sheet(wb, wsPP, '1С Платёж. поручения');
+  }
+
+  /* Sheet 3: ГТД по импорту — для 1С */
+  const note1CD = '1С: Запасы → ГТД по импорту';
+  const hdrDT = ['Дата выпуска ДТ','№ ДТ','№ поставки','Контракт','Контрагент',
+    'Таможенная стоимость','Валюта','Таможенная пошлина ₽','НДС при импорте ₽',
+    'Тамож. сборы ₽','Итого доп. расходы ₽','Счёт дт','Счёт кт'];
+  const rowsDT = [
+    ['ГТД ПО ИМПОРТУ — выгрузка для 1С:Предприятие · ' + new Date().toLocaleDateString('ru-RU'), ...Array(hdrDT.length-1).fill('')],
+    [note1CD, ...Array(hdrDT.length-1).fill('')],
+    hdrDT,
+  ];
+  allShp.forEach(s => {
+    const cust = s.customs || {};
+    const budget = typeof budgets !== 'undefined' ? budgets.find(b => b.po === (s.contract_id||s.shipment_number)) : null;
+    const duty  = budget ? Math.round(budget.lines?.cus_duty?.fact || 0) : '';
+    const vat   = budget ? Math.round(budget.lines?.cus_vat?.fact  || 0) : '';
+    const fees  = budget ? Math.round(budget.lines?.cus_fee?.fact  || 0) : '';
+    const total = (duty && vat && fees) ? duty + vat + fees : '';
+    rowsDT.push([
+      s.ptk_date || s.dates?.customs_done || '',
+      cust.dt_number || '(заполнить)',
+      s.shipment_number || '',
+      s.contract_id || '',
+      shpSupName(s.supplier_id),
+      parseFloat(s.total_value) || 0,
+      s.currency || '',
+      duty,
+      vat,
+      fees,
+      total,
+      '76.09',  // Расчёты с таможней
+      '51',     // Расчётный счёт
+    ]);
+  });
+  const wsDT = XLSX.utils.aoa_to_sheet(rowsDT);
+  wsDT['!cols'] = [13,18,13,16,22,14,8,14,14,12,14,8,8].map(w=>({wch:w}));
+  wsDT['!merges'] = [{s:{r:0,c:0},e:{r:0,c:hdrDT.length-1}},{s:{r:1,c:0},e:{r:1,c:hdrDT.length-1}}];
+  if(wsDT['A1'])wsDT['A1'].s={font:{bold:true,sz:11,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0B1F3A'}},alignment:{horizontal:'center'}};
+  if(wsDT['A2'])wsDT['A2'].s={font:{italic:true,color:{rgb:'444444'}},fill:{fgColor:{rgb:'F0F0F0'}},alignment:{horizontal:'center'}};
+  _xlsHeader(wsDT, 2, hdrDT, 'B85C3A');
+  XLSX.utils.book_append_sheet(wb, wsDT, '1С ГТД по импорту');
+
+  XLSX.writeFile(wb, '1С_ВЭД_выгрузка_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  showToast('✅ Выгрузка для 1С сформирована (3 листа)');
+}
 
 // ════════════════════════════════════════════
 // ── PAYMENTS REGISTER ──
