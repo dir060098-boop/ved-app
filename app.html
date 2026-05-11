@@ -19422,59 +19422,234 @@ function shpSaveCustoms() {
 }
 
 /* ── TAB: PAYMENTS ──────────────────────────────────────────────── */
+// ── Payment schedule templates ───────────────────────────────────
+const PAY_TEMPLATES = [
+  { id:'',              label:'— выберите схему оплаты —' },
+  { id:'pre100',        label:'100% предоплата (аванс)' },
+  { id:'adv30_doc70',   label:'30% аванс + 70% по документам' },
+  { id:'adv50_doc50',   label:'50% аванс + 50% по документам' },
+  { id:'adv30_doc50_del20', label:'30% аванс + 50% по B/L + 20% по прибытии' },
+  { id:'net30',         label:'100% NET 30 дней с даты B/L' },
+  { id:'net60',         label:'100% NET 60 дней с даты B/L' },
+  { id:'net90',         label:'100% NET 90 дней с даты B/L' },
+  { id:'lc',            label:'Аккредитив (L/C)' },
+];
+
 function shpRenderPayments(s) {
   const el = document.getElementById('shpd-payments-content');
   if (!el) return;
-  const pmts = s.payments || [];
+  const pmts   = s.payments || [];
+  const cur    = s.currency || 'USD';
+  const total  = s.total_value || 0;
+  const etd    = s.dates?.etd || '';
+  const eta    = s.dates?.eta || '';
 
-  const paid    = pmts.filter(p => p.status === 'paid').reduce((sum, p) => sum + (p.amount||0), 0);
-  const pending = pmts.filter(p => p.status !== 'paid').reduce((sum, p) => sum + (p.amount||0), 0);
-  const pct     = pmts.length ? Math.round(paid / (paid + pending) * 100) : 0;
+  const paid    = pmts.filter(p => p.status==='paid').reduce((a,p)=>a+(p.amount||0),0);
+  const pending = pmts.filter(p => p.status!=='paid').reduce((a,p)=>a+(p.amount||0),0);
+  const pct     = (paid+pending)>0 ? Math.round(paid/(paid+pending)*100) : 0;
+
+  // Days helper
+  const daysUntil = dateStr => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr+'T00:00:00'), t = new Date(); t.setHours(0,0,0,0);
+    return Math.round((d-t)/86400000);
+  };
+  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'}) : '—';
+  const pmtStatus = p => {
+    if (p.status==='paid') return { cls:'#15803d', icon:'✅', label:'Оплачен' };
+    const d = daysUntil(p.due);
+    if (d===null) return { cls:'var(--text3)', icon:'⏳', label:'Ожидается' };
+    if (d<0)  return { cls:'#dc2626', icon:'🔴', label:'Просрочен' };
+    if (d<=7) return { cls:'#ea580c', icon:'🟡', label:`${d} дн.` };
+    return      { cls:'var(--co-accent)', icon:'⏳', label:`${d} дн.` };
+  };
+
+  // ── Timeline ──────────────────────────────────────────────────
+  const sorted = [...pmts].sort((a,b)=>(a.due||'9').localeCompare(b.due||'9'));
+  const timelineHtml = sorted.length>0 && sorted.some(p=>p.due) ? (() => {
+    const dates = sorted.filter(p=>p.due).map(p=>p.due);
+    const minD = new Date(dates[0]+'T00:00:00');
+    const maxD = new Date(dates[dates.length-1]+'T00:00:00');
+    const range = Math.max((maxD-minD)/86400000, 30);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const todayPct = Math.max(0,Math.min(100,((today-minD)/86400000/range)*100));
+    return `<div style="margin:16px 0;padding:16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:12px;font-family:'Fira Code',monospace">📅 Таймлайн платежей</div>
+      <div style="position:relative;height:6px;background:var(--border);border-radius:3px;margin:20px 8px 28px">
+        <div style="position:absolute;top:-5px;left:${todayPct}%;transform:translateX(-50%);width:16px;height:16px;background:var(--co-accent);border-radius:50%;border:2px solid white;z-index:2" title="Сегодня"></div>
+        <div style="position:absolute;top:12px;left:${todayPct}%;transform:translateX(-50%);font-size:9px;color:var(--co-accent);font-family:'Fira Code',monospace;white-space:nowrap">сегодня</div>
+        ${sorted.filter(p=>p.due).map(p=>{
+          const pPct = Math.max(0,Math.min(100,((new Date(p.due+'T00:00:00')-minD)/86400000/range)*100));
+          const st = pmtStatus(p);
+          const col = p.status==='paid'?'#15803d':daysUntil(p.due)<0?'#dc2626':daysUntil(p.due)<=7?'#ea580c':'var(--co-accent)';
+          return `<div style="position:absolute;top:-7px;left:${pPct}%;transform:translateX(-50%)" title="${p.note||''}: ${fmtD(p.due)}">
+            <div style="width:20px;height:20px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:9px;color:white;font-weight:700;border:2px solid white;cursor:default">
+              ${p.pct||'?'}%
+            </div>
+            <div style="position:absolute;top:24px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--text3);white-space:nowrap;font-family:'Fira Code',monospace">${fmtD(p.due)}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  })() : '';
+
+  // ── Payment cards ─────────────────────────────────────────────
+  const cardsHtml = pmts.length===0
+    ? '<div style="color:var(--text3);font-size:12px;padding:16px 0;text-align:center">Нет запланированных платежей</div>'
+    : pmts.map((p,i)=>{
+        const st = pmtStatus(p);
+        const d  = daysUntil(p.due);
+        return `<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--surface);border:1.5px solid ${p.status==='paid'?'rgba(21,128,61,0.25)':d!==null&&d<0?'rgba(220,38,38,0.25)':d!==null&&d<=7?'rgba(234,88,12,0.2)':'var(--border)'};border-radius:10px;margin-bottom:8px;transition:all 0.15s">
+          <div style="width:42px;height:42px;border-radius:50%;background:${p.status==='paid'?'#f0fdf4':d!==null&&d<0?'#fef2f2':d!==null&&d<=7?'#fff7ed':'var(--surface2)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${st.icon}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:12.5px;margin-bottom:2px">${p.note||'Платёж'}</div>
+            <div style="font-size:10px;color:var(--text3);font-family:'Fira Code',monospace">
+              Срок: <b>${fmtD(p.due)}</b>${p.status==='paid'&&p.paid?' · Оплачен: '+fmtD(p.paid):''}
+              ${p.status!=='paid'&&d!==null?` · <span style="color:${st.cls};font-weight:700">${d<0?'просрочен '+Math.abs(d)+' дн.':d===0?'сегодня!':'через '+d+' дн.'}</span>`:''}
+            </div>
+            ${p.ppNum?`<div style="font-size:10px;color:var(--text3)">п/п ${p.ppNum}</div>`:''}
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-family:'Fira Code',monospace;font-weight:800;font-size:14px;color:${st.cls}">${fmtNum(p.amount||0)} ${p.currency||cur}</div>
+            ${p.pct?`<div style="font-size:10px;color:var(--text3)">${p.pct}% от суммы</div>`:''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+            <button class="admin-action-btn" onclick="shpTogglePaid(${i})" style="${p.status==='paid'?'':'background:var(--co-accent-light);border-color:var(--co-accent);color:var(--co-accent);font-size:10px'}">
+              ${p.status==='paid'?'↩':'✓ Оплачен'}
+            </button>
+            ${p.status==='paid'?`<input placeholder="№ п/п" value="${p.ppNum||''}" onchange="shpSetPpNum(${i},this.value)" style="width:90px;padding:3px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;font-family:'Fira Code',monospace;background:var(--surface)">`:'' }
+            <button class="admin-action-btn danger" onclick="shpRemovePayment(${i})" style="font-size:10px">×</button>
+          </div>
+        </div>`;
+      }).join('');
 
   el.innerHTML = `
-    <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
-      <div style="flex:1;min-width:140px;padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)">
-        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Оплачено</div>
-        <div style="font-family:'JetBrains Mono',monospace;font-weight:800;font-size:16px;color:#15803d">${fmtNum(paid)} ${s.currency||''}</div>
+    <!-- KPIs -->
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="flex:1;min-width:110px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px">
+        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Оплачено</div>
+        <div style="font-family:'Fira Code',monospace;font-weight:800;font-size:15px;color:#15803d">${fmtNum(paid)} ${cur}</div>
       </div>
-      <div style="flex:1;min-width:140px;padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)">
-        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">К оплате</div>
-        <div style="font-family:'JetBrains Mono',monospace;font-weight:800;font-size:16px;color:var(--co-accent)">${fmtNum(pending)} ${s.currency||''}</div>
+      <div style="flex:1;min-width:110px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px">
+        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">К оплате</div>
+        <div style="font-family:'Fira Code',monospace;font-weight:800;font-size:15px;color:var(--co-accent)">${fmtNum(pending)} ${cur}</div>
       </div>
-      <div style="flex:1;min-width:140px;padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)">
-        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Выплачено</div>
-        <div style="font-family:'JetBrains Mono',monospace;font-weight:800;font-size:16px;color:var(--text)">${pct}%</div>
-        <div class="shp-progress-bar" style="margin-top:6px;height:6px"><div class="shp-progress-fill" style="width:${pct}%;background:${pct===100?'#15803d':''}"></div></div>
+      <div style="flex:2;min-width:160px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px">
+        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Прогресс оплаты</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:${pct===100?'#15803d':'var(--co-accent)'};border-radius:4px;transition:width 0.4s"></div>
+          </div>
+          <span style="font-family:'Fira Code',monospace;font-weight:800;font-size:14px">${pct}%</span>
+        </div>
       </div>
     </div>
 
-    ${pmts.length === 0
-      ? '<div style="color:var(--text3);font-size:12px;padding:12px 0">Платежи ещё не добавлены</div>'
-      : pmts.map((p, i) => `<div class="shp-pay-row">
-          <div style="width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-                      font-size:10px;flex-shrink:0;background:${p.status==='paid'?'#f0fdf4':'#fff7ed'};
-                      color:${p.status==='paid'?'#15803d':'#ea580c'}">
-            ${p.status==='paid'?'✓':'!'}
+    <!-- Schedule generator -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;margin-bottom:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text3);font-family:'Fira Code',monospace">📅 Схема оплаты по контракту</div>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px">Условия оплаты</div>
+          <select id="shp-pay-template" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);font-size:12px">
+            ${PAY_TEMPLATES.map(t=>`<option value="${t.id}">${t.label}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px">Сумма контракта</div>
+          <div style="font-family:'Fira Code',monospace;font-weight:700;font-size:13px;padding:7px 12px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--co-accent)">
+            ${total?fmtNum(total)+' '+cur:'не указана'}
           </div>
-          <div style="flex:1">
-            <div style="font-weight:700;font-size:12.5px">${p.note||p.type||'Платёж'}</div>
-            <div style="font-size:10.5px;color:var(--text3)">Срок: ${p.due||'—'} ${p.paid?'· Оплачен: '+p.paid:''}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px">ETD (дата B/L)</div>
+          <div style="font-family:'Fira Code',monospace;font-size:12px;padding:7px 12px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:${etd?'var(--text)':'var(--text3)'}">
+            ${etd||'не задана'}
           </div>
-          <div style="text-align:right">
-            <div style="font-family:'JetBrains Mono',monospace;font-weight:800;font-size:13px;
-                        color:${p.status==='paid'?'#15803d':'var(--co-accent)'}">
-              ${fmtNum(p.amount||0)} ${p.currency||s.currency||''}
-            </div>
-            <span class="shp-badge ${p.status==='paid'?'delivered':'active'}" style="font-size:9px">
-              ${p.status==='paid'?'✅ Оплачен':'⏳ Ожидается'}
-            </span>
-          </div>
-          <button class="admin-action-btn" onclick="shpTogglePaid(${i})"
-                  style="${p.status==='paid'?'':'background:var(--co-accent-light);border-color:var(--co-accent);color:var(--co-accent)'}">
-            ${p.status==='paid'?'↩ Отменить':'✓ Оплачен'}
-          </button>
-          <button class="admin-action-btn danger" onclick="shpRemovePayment(${i})">×</button>
-        </div>`).join('')}`;
+        </div>
+        <button onclick="shpGeneratePaymentSchedule()" style="padding:8px 18px;background:var(--co-accent);color:white;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap">
+          ⚡ Создать график
+        </button>
+        <button onclick="shpAddPaymentManual()" style="padding:8px 14px;background:transparent;color:var(--co-accent);border:1.5px solid var(--co-accent);border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">
+          + Вручную
+        </button>
+      </div>
+      ${etd?'':total?'<div style="font-size:10px;color:var(--rust);margin-top:8px">⚠️ Укажите ETD в карточке поставки для корректного расчёта дат по документам</div>':'<div style="font-size:10px;color:var(--rust);margin-top:8px">⚠️ Укажите сумму контракта и ETD в карточке поставки</div>'}
+    </div>
+
+    <!-- Timeline -->
+    ${timelineHtml}
+
+    <!-- Payment cards -->
+    ${cardsHtml}`;
+}
+
+// ── Generate payment schedule from template ───────────────────────
+function shpGeneratePaymentSchedule() {
+  const s = DB_shipments.find(_shpCurrent);
+  if (!s) return;
+  const template = document.getElementById('shp-pay-template')?.value;
+  if (!template) { showToast('⚠️ Выберите схему оплаты'); return; }
+  const total = s.total_value || 0;
+  const cur   = s.currency   || 'USD';
+  const etd   = s.dates?.etd || '';
+  const today = new Date().toISOString().slice(0,10);
+  if (!total) { showToast('⚠️ Укажите сумму контракта в карточке поставки'); return; }
+
+  const addDays = (base, n) => {
+    if (!base) return '';
+    const d = new Date(base+'T00:00:00'); d.setDate(d.getDate()+n);
+    return d.toISOString().slice(0,10);
+  };
+  const mkPmt = (note, pct, base, offsetDays) => ({
+    id: 'pg'+Date.now()+Math.random().toString(36).slice(2,5),
+    note, pct, amount: Math.round(total*pct/100*100)/100,
+    currency: cur, due: addDays(base, offsetDays),
+    status:'pending', paid:'', ppNum:'', generated:true
+  });
+
+  const TPLS = {
+    pre100:         () => [mkPmt('100% предоплата',                   100, today, 0)],
+    adv30_doc70:    () => [mkPmt('30% — аванс при подписании',          30, today, 0),
+                           mkPmt('70% — по документам (B/L)',           70, etd||today, etd?5:30)],
+    adv50_doc50:    () => [mkPmt('50% — аванс при подписании',          50, today, 0),
+                           mkPmt('50% — по документам (B/L)',           50, etd||today, etd?5:30)],
+    adv30_doc50_del20:()=>[mkPmt('30% — аванс при подписании',          30, today, 0),
+                           mkPmt('50% — по документам (B/L)',           50, etd||today, etd?5:30),
+                           mkPmt('20% — по прибытии товара',            20, s.dates?.eta||etd||today, 5)],
+    net30:          () => [mkPmt('100% — NET 30 дней с даты B/L',      100, etd||today, 30)],
+    net60:          () => [mkPmt('100% — NET 60 дней с даты B/L',      100, etd||today, 60)],
+    net90:          () => [mkPmt('100% — NET 90 дней с даты B/L',      100, etd||today, 90)],
+    lc:             () => [{...mkPmt('Открытие аккредитива (L/C)',       0, today, 0), amount:0, note:'Открытие аккредитива (L/C) — резервирование средств'},
+                           mkPmt('Оплата по аккредитиву (по документам)',100, etd||today, etd?5:30)],
+  };
+
+  const gen = TPLS[template];
+  if (!gen) return;
+  const pmts = (s.payments||[]).filter(p=>!p.generated);
+  const newPmts = [...pmts, ...gen()];
+  DB_shipments.update(_shpCurrent, { payments: newPmts });
+  shpRenderPayments(DB_shipments.find(_shpCurrent));
+  showToast(`📅 График платежей создан`);
+}
+
+function shpAddPaymentManual() {
+  const s = DB_shipments.find(_shpCurrent);
+  if (!s) return;
+  const note   = prompt('Название платежа:');       if (!note) return;
+  const amount = parseFloat(prompt('Сумма:')||'0'); if (!amount) return;
+  const due    = prompt('Дата срока (ГГГГ-ММ-ДД):') || '';
+  const pmts   = s.payments || [];
+  pmts.push({ id:'pm'+Date.now(), note, amount, currency:s.currency||'USD', due, status:'pending', paid:'', ppNum:'', pct:0 });
+  DB_shipments.update(_shpCurrent, { payments: pmts });
+  shpRenderPayments(DB_shipments.find(_shpCurrent));
+}
+
+function shpSetPpNum(idx, val) {
+  const s = DB_shipments.find(_shpCurrent);
+  if (!s) return;
+  const pmts = s.payments || [];
+  if (pmts[idx]) { pmts[idx].ppNum = val; DB_shipments.update(_shpCurrent, { payments: pmts }); }
 }
 
 function shpTogglePaid(idx) {
