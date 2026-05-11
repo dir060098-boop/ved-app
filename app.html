@@ -4965,6 +4965,44 @@
           </div>
         </div>
 
+        <!-- Валютный контроль / Репатриация -->
+        <div class="block-title" style="margin-top:24px">🏦 Валютный контроль / Репатриация</div>
+        <div style="background:var(--co-accent-light);border:1px solid var(--co-accent-border);border-radius:var(--radius);padding:12px 16px;margin-bottom:14px;font-size:11px;color:var(--text2);line-height:1.6">
+          <b>Порог постановки на учёт (ФЗ-173):</b> &nbsp;
+          <span id="c-threshold-badge" style="font-family:'Fira Code',monospace;font-weight:700">— введите сумму контракта</span><br>
+          Менее 3 млн ₽ — учёт не требуется &nbsp;·&nbsp; 3–6 млн ₽ — уведомление банка &nbsp;·&nbsp; Более 6 млн ₽ — постановка на учёт (УНК)
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label>Сумма контракта (в валюте)</label>
+            <input id="c-total-amount" type="number" min="0" step="0.01" placeholder="напр. 149112" oninput="ctUpdateThreshold()">
+          </div>
+          <div class="field">
+            <label>УНК (Учётный номер контракта)</label>
+            <input id="c-unk" placeholder="20хх00/xxxx/xxxx/x/x" style="font-family:'Fira Code',monospace" maxlength="25">
+          </div>
+          <div class="field">
+            <label>Срок репатриации (дней от даты договора)</label>
+            <input id="c-repat-days" type="number" min="1" max="730" placeholder="180" value="180" oninput="ctUpdateRepatDeadline()">
+          </div>
+          <div class="field">
+            <label>Дата истечения срока репатриации</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input id="c-repat-date" type="date" style="flex:1">
+              <button onclick="ctCalcRepatFromDays()" title="Рассчитать от даты договора" style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;cursor:pointer;color:var(--co-accent);font-size:12px" onmouseover="this.style.borderColor='var(--co-accent)'" onmouseout="this.style.borderColor='var(--border)'">⟳</button>
+            </div>
+            <div id="c-repat-status" style="font-size:10px;margin-top:3px;font-family:'Fira Code',monospace"></div>
+          </div>
+          <div class="field">
+            <label>Дата уведомления банка</label>
+            <input id="c-bank-notify-date" type="date">
+          </div>
+          <div class="field">
+            <label>Примечание (валютный контроль)</label>
+            <input id="c-vc-note" placeholder="Дополнительные сведения">
+          </div>
+        </div>
+
         <!-- Action buttons -->
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;align-items:center">
           <button class="gen-btn" onclick="ctSaveAndGenerate()" style="margin:0">💾 Сохранить и сформировать</button>
@@ -6257,6 +6295,7 @@
           <button class="gen-btn" onclick="toggleDlAddForm()" style="margin-top:0;padding:9px 16px">+ Добавить дедлайн</button>
           <button class="gen-btn secondary" onclick="exportDeadlinesExcel()" style="margin-top:0;padding:9px 16px;border-color:rgba(31,122,99,0.5);color:var(--green);background:rgba(31,122,99,0.07)">⬇ Excel</button>
           <button class="gen-btn secondary" onclick="syncDeadlinesFromTracker()" style="margin-top:0;padding:9px 16px" title="Импортировать даты из Трекера поставок">↻ Sync с трекером</button>
+          <button class="gen-btn secondary" onclick="syncRepatToDeadlines();renderDeadlines();showToast('✅ Дедлайны репатриации обновлены')" style="margin-top:0;padding:9px 16px;border-color:rgba(196,148,58,0.5);color:var(--gold);background:rgba(196,148,58,0.07)" title="Подтянуть сроки репатриации из Реестра договоров">🏦 Репатриация</button>
         </div>
       </div>
 
@@ -8860,7 +8899,8 @@ function ctShowForm(id) {
 function ctClearForm() {
   const fields = ['c-num','c-date','c-seller-name','c-seller-addr','c-seller-rep',
     'c-seller-pos','c-seller-bank','c-seller-swift','c-seller-acc','c-seller-ifsc',
-    'c-delivery-num','c-delivery-addr','c-leadtime','c-warranty'];
+    'c-delivery-num','c-delivery-addr','c-leadtime','c-warranty',
+    'c-total-amount','c-unk','c-repat-date','c-bank-notify-date','c-vc-note'];
   fields.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   // Reset buyer to company defaults
   const buyerDefaults = {
@@ -8898,6 +8938,14 @@ function ctFillForm(c) {
   fld('c-buyer-corr',  c.buyerCorr);  fld('c-buyer-bankaddr', c.buyerBankAddr || c.buyerBankaddr);
   fld('c-delivery-addr', c.deliveryAddr); fld('c-leadtime', c.leadtime);
   fld('c-warranty',   c.warranty);    fld('c-delivery-num', c.deliveryNum);
+  fld('c-total-amount', c.totalAmount || '');
+  fld('c-unk',        c.unk || '');
+  fld('c-repat-days', c.repatDays || 180);
+  fld('c-repat-date', c.repatDate || '');
+  fld('c-bank-notify-date', c.bankNotifyDate || '');
+  fld('c-vc-note',    c.vcNote || '');
+  ctUpdateThreshold();
+  ctUpdateRepatStatus();
   // selects
   const selVal = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
   selVal('c-inco', c.inco); selVal('c-payment', c.payment); selVal('c-currency', c.currency);
@@ -8920,6 +8968,12 @@ function ctGetFormData() {
     inco: v('c-inco'), payment: v('c-payment'), currency: v('c-currency'),
     deliveryAddr: v('c-delivery-addr'), leadtime: v('c-leadtime'),
     warranty: v('c-warranty'), deliveryNum: v('c-delivery-num'),
+    totalAmount: parseFloat(v('c-total-amount')) || 0,
+    unk: v('c-unk'),
+    repatDays: parseInt(v('c-repat-days')) || 180,
+    repatDate: v('c-repat-date'),
+    bankNotifyDate: v('c-bank-notify-date'),
+    vcNote: v('c-vc-note'),
     status: 'active',
     updatedAt: new Date().toISOString().slice(0, 10)
   };
@@ -8936,6 +8990,7 @@ function ctSaveOnly() {
   } else {
     DB_contracts.insert({ ...data, id: Date.now().toString(), createdAt: data.updatedAt });
   }
+  syncRepatToDeadlines();
   ctShowList();
 }
 
@@ -8956,6 +9011,7 @@ function ctSaveAndGenerate() {
     const t = document.getElementById('ct-form-title');
     if (t) t.textContent = 'Редактировать договор';
   }
+  syncRepatToDeadlines();
   generateContract(); // generate preview (existing function)
 }
 
@@ -9002,16 +9058,35 @@ function ctRenderList() {
         <th>Дата</th>
         <th>Incoterms</th>
         <th>Валюта</th>
+        <th>УНК</th>
+        <th>Репатриация</th>
         <th>Статус</th>
         <th style="width:80px"></th>
       </tr></thead>
       <tbody>
-        ${sorted.map(c => `<tr>
+        ${sorted.map(c => {
+          const today = new Date(); today.setHours(0,0,0,0);
+          let repatCell = '—';
+          if (c.repatDate) {
+            const rd = new Date(c.repatDate + 'T00:00:00');
+            const diff = Math.round((rd - today) / 86400000);
+            const dateStr = c.repatDate.split('-').reverse().join('.');
+            if (diff < 0) {
+              repatCell = `<span style="color:var(--red);font-weight:700;font-size:11px">🔴 ${dateStr}<br><span style="font-size:10px">${Math.abs(diff)} дн. назад</span></span>`;
+            } else if (diff <= 30) {
+              repatCell = `<span style="color:var(--rust);font-weight:700;font-size:11px">🟠 ${dateStr}<br><span style="font-size:10px">через ${diff} дн.</span></span>`;
+            } else {
+              repatCell = `<span style="color:var(--text2);font-size:11px">✅ ${dateStr}<br><span style="font-size:10px">через ${diff} дн.</span></span>`;
+            }
+          }
+          return `<tr>
           <td style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--co-accent);cursor:pointer" onclick="ctShowForm('${c.id}')">${c.num || '—'}</td>
           <td style="font-weight:500">${c.sellerName || '—'}</td>
           <td style="white-space:nowrap;color:var(--text2)">${c.date ? c.date.split('-').reverse().join('.') : '—'}</td>
           <td><span style="background:var(--co-accent-light);color:var(--co-accent);padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600">${c.inco || '—'}</span></td>
           <td style="color:var(--text2)">${c.currency || '—'}</td>
+          <td style="font-family:'Fira Code',monospace;font-size:11px;color:var(--text2)">${c.unk || '—'}</td>
+          <td>${repatCell}</td>
           <td>${statusBadge(c.status)}</td>
           <td style="white-space:nowrap;text-align:center">
             <button onclick="ctShowForm('${c.id}')" title="Редактировать"
@@ -9019,10 +9094,100 @@ function ctRenderList() {
             <button onclick="ctDeleteContract('${c.id}')" title="Удалить"
               style="background:none;border:none;cursor:pointer;font-size:14px;padding:4px 6px;color:var(--text3)">🗑</button>
           </td>
-        </tr>`).join('')}
+        </tr>`;}).join('')}
       </tbody>
     </table>
     <div style="margin-top:10px;font-size:11px;color:var(--text3)">Всего договоров: ${sorted.length}</div>`;
+}
+
+// ── CONTRACT: CURRENCY CONTROL / REPATRIATION HELPERS ──
+
+function ctUpdateThreshold() {
+  const amountEl = document.getElementById('c-total-amount');
+  const badge    = document.getElementById('c-threshold-badge');
+  const currEl   = document.getElementById('c-currency');
+  if (!badge || !amountEl) return;
+  const amount = parseFloat(amountEl.value) || 0;
+  if (!amount) { badge.textContent = '— введите сумму контракта'; badge.style.color = 'var(--text3)'; return; }
+  // Rough RUB equivalent for threshold check (user should verify with actual rate)
+  const curr = currEl ? currEl.value : 'USD';
+  const approxRates = { USD:90, EUR:100, CNY:12.5, INR:1.08, RUB:1 };
+  const rate = approxRates[curr] || 90;
+  const rubEquiv = amount * rate;
+  if (rubEquiv < 3_000_000) {
+    badge.textContent = `≈ ${Math.round(rubEquiv).toLocaleString('ru-RU')} ₽ — Учёт не требуется`;
+    badge.style.color = 'var(--green)';
+  } else if (rubEquiv < 6_000_000) {
+    badge.textContent = `≈ ${Math.round(rubEquiv).toLocaleString('ru-RU')} ₽ — Уведомление банка`;
+    badge.style.color = 'var(--rust)';
+  } else {
+    badge.textContent = `≈ ${Math.round(rubEquiv).toLocaleString('ru-RU')} ₽ — Постановка на учёт (УНК обязателен)`;
+    badge.style.color = 'var(--red)';
+  }
+}
+
+function ctCalcRepatFromDays() {
+  const dateEl = document.getElementById('c-date');
+  const daysEl = document.getElementById('c-repat-days');
+  const repatEl = document.getElementById('c-repat-date');
+  if (!dateEl || !daysEl || !repatEl) return;
+  const base = dateEl.value;
+  if (!base) { showToast('⚠️ Сначала укажите дату договора'); return; }
+  const days = parseInt(daysEl.value) || 180;
+  const d = new Date(base + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  repatEl.value = d.toISOString().slice(0, 10);
+  ctUpdateRepatStatus();
+}
+
+function ctUpdateRepatDeadline() {
+  // Called on repat-days input — auto-recalculate if date is already set
+  const dateEl = document.getElementById('c-date');
+  if (dateEl && dateEl.value) ctCalcRepatFromDays();
+  ctUpdateRepatStatus();
+}
+
+function ctUpdateRepatStatus() {
+  const repatEl  = document.getElementById('c-repat-date');
+  const statusEl = document.getElementById('c-repat-status');
+  if (!statusEl || !repatEl || !repatEl.value) { if (statusEl) statusEl.textContent = ''; return; }
+  const today = new Date(); today.setHours(0,0,0,0);
+  const rd = new Date(repatEl.value + 'T00:00:00');
+  const diff = Math.round((rd - today) / 86400000);
+  if (diff < 0) {
+    statusEl.textContent = `🔴 Просрочено на ${Math.abs(diff)} дн.`;
+    statusEl.style.color = 'var(--red)';
+  } else if (diff <= 30) {
+    statusEl.textContent = `🟠 До срока ${diff} дн.`;
+    statusEl.style.color = 'var(--rust)';
+  } else {
+    statusEl.textContent = `✅ До срока ${diff} дн.`;
+    statusEl.style.color = 'var(--green)';
+  }
+}
+
+function syncRepatToDeadlines() {
+  // Push repatriation deadlines for all contracts into the deadlines registry
+  const all = DB_contracts.all();
+  all.forEach(c => {
+    if (!c.repatDate) return;
+    const dlId = 'repat_' + c.id;
+    // Remove old entry for this contract if exists
+    deadlines = deadlines.filter(d => d.id !== dlId);
+    deadlines.push({
+      id: dlId,
+      name: `Репатриация: ${c.num} (${c.sellerName || '?'})`,
+      date: c.repatDate,
+      type: 'customs',
+      po: c.num || '',
+      supplier: c.sellerName || '',
+      note: c.vcNote ? `УНК: ${c.unk || '—'} · ${c.vcNote}` : `УНК: ${c.unk || '—'}`,
+      done: false,
+      source: 'repat',
+    });
+  });
+  deadlines.sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  saveDeadlines();
 }
 
 // ── SPEC PRINT / PDF ──
@@ -10578,6 +10743,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadAllScans();
   renderChecklist();
   loadDeadlines();
+  syncRepatToDeadlines();
   spLoad();
   const sCur = document.getElementById('s-currency');
   if (sCur) sCur.addEventListener('change', renderSpecTable);
