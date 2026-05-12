@@ -5268,6 +5268,32 @@
           <input id="i-contract-num" placeholder="ENDV2026-03/4" oninput="invCheckSpecRows(this.value)">
           <div id="inv-spec-banner" style="display:none;background:var(--co-accent-light);border:1px solid var(--co-accent-border);border-radius:var(--radius);padding:10px 14px;margin-top:8px;font-size:12px"></div>
         </div>
+        <div class="field">
+          <label>Валюта</label>
+          <select id="i-currency" onchange="renderInvTable()">
+            <option value="USD">USD $</option>
+            <option value="EUR">EUR €</option>
+            <option value="CNY">CNY ¥</option>
+            <option value="INR" selected>INR ₹</option>
+            <option value="RUB">RUB ₽</option>
+            <option value="GBP">GBP £</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Ед. изм. по умолчанию</label>
+          <select id="i-default-unit" onchange="renderInvTable()">
+            <option value="Pcs">Pcs — штука</option>
+            <option value="Mtrs" selected>Mtrs — метр</option>
+            <option value="Kgs">Kgs — кг</option>
+            <option value="Sets">Sets — комплект</option>
+            <option value="Rolls">Rolls — рулон</option>
+            <option value="Coils">Coils — катушка</option>
+            <option value="Drums">Drums — барабан</option>
+            <option value="Cartons">Cartons — коробка</option>
+            <option value="L">L — литр</option>
+            <option value="T">T — тонна</option>
+          </select>
+        </div>
       </div>
 
       <div class="block-title">Экспортёр / Получатель</div>
@@ -5316,9 +5342,10 @@
           <tr>
             <th>#</th>
             <th>Описание товара</th>
-            <th>Кол-во (Mtrs)</th>
-            <th>Цена за ед. (INR)</th>
-            <th>Сумма (INR)</th>
+            <th>Кол-во</th>
+            <th id="inv-th-unit">Ед. изм.</th>
+            <th id="inv-th-price">Цена за ед.</th>
+            <th id="inv-th-amount">Сумма</th>
             <th></th>
           </tr>
         </thead>
@@ -5334,10 +5361,10 @@
 
       <div class="total-box">
         <div>
-          <div class="lbl">TOTAL INR ₹</div>
+          <div class="lbl" id="inv-total-lbl">TOTAL</div>
           <div class="val" id="inv-total-val">0.00</div>
         </div>
-        <div class="currency">INR ₹</div>
+        <div class="currency" id="inv-total-cur">—</div>
       </div>
 
       <button class="gen-btn" onclick="generateInvoice()">⬡ Сформировать инвойс</button>
@@ -8314,23 +8341,56 @@ function addSpecRow() {
 
 // ── INV ROWS ──
 const invRows = [
-  {desc:'3C X 0.50SQ.MM ARM CABLE', qty:300, price:135.63},
-  {desc:'7C X 0.50SQ.MM ARM CABLE', qty:300, price:206.35},
-  {desc:'4C X 0.50SQ.MM ARM CABLE', qty:300, price:155.06},
+  {desc:'3C X 0.50SQ.MM ARM CABLE', qty:300, unit:'Mtrs', price:135.63},
+  {desc:'7C X 0.50SQ.MM ARM CABLE', qty:300, unit:'Mtrs', price:206.35},
+  {desc:'4C X 0.50SQ.MM ARM CABLE', qty:300, unit:'Mtrs', price:155.06},
 ];
 
+const INV_UNITS = ['Pcs','Mtrs','Kgs','Sets','Rolls','Coils','Drums','Cartons','L','T','m²'];
+const INV_CUR_SYM = {USD:'$',EUR:'€',CNY:'¥',INR:'₹',RUB:'₽',GBP:'£'};
+
+function invGetCurrency() {
+  return document.getElementById('i-currency')?.value || 'USD';
+}
+function invGetDefaultUnit() {
+  return document.getElementById('i-default-unit')?.value || 'Pcs';
+}
+
 function renderInvTable() {
+  const cur = invGetCurrency();
+  const sym = INV_CUR_SYM[cur] || cur;
+
+  // Update column headers dynamically
+  const th = id => document.getElementById(id);
+  if (th('inv-th-price'))  th('inv-th-price').textContent  = `Цена за ед. (${cur})`;
+  if (th('inv-th-amount')) th('inv-th-amount').textContent = `Сумма (${cur})`;
+  if (th('inv-th-unit'))   th('inv-th-unit').textContent   = 'Ед. изм.';
+
+  // Update total label
+  const tlbl = document.getElementById('inv-total-lbl');
+  const tcur  = document.getElementById('inv-total-cur');
+  if (tlbl) tlbl.textContent = `TOTAL ${cur} ${sym}`;
+  if (tcur) tcur.textContent = `${cur} ${sym}`;
+
   const tbody = document.getElementById('inv-goods-body');
+  if (!tbody) return;
   tbody.innerHTML = '';
   let total = 0;
   invRows.forEach((row, i) => {
-    const amt = row.qty * row.price;
+    const amt = (row.qty||0) * (row.price||0);
     total += amt;
+    const unitOpts = INV_UNITS.map(u =>
+      `<option${u===(row.unit||invGetDefaultUnit())?' selected':''}>${u}</option>`
+    ).join('');
     tbody.innerHTML += `<tr>
       <td><input style="width:30px;text-align:center" value="${i+1}" readonly></td>
-      <td><input style="width:200px" value="${row.desc}" onchange="invRows[${i}].desc=this.value"></td>
-      <td><input style="width:80px;text-align:right" value="${row.qty}" onchange="invRows[${i}].qty=parseFloat(this.value)||0;renderInvTable()"></td>
-      <td><input style="width:80px;text-align:right" value="${row.price}" onchange="invRows[${i}].price=parseFloat(this.value)||0;renderInvTable()"></td>
+      <td><input style="width:200px" value="${row.desc||''}" onchange="invRows[${i}].desc=this.value"></td>
+      <td><input type="number" style="width:75px;text-align:right" value="${row.qty||0}" min="0" step="any"
+            onchange="invRows[${i}].qty=parseFloat(this.value)||0;renderInvTable()"></td>
+      <td><select style="padding:3px 4px;border:1px solid var(--border);border-radius:4px;font-size:11px"
+            onchange="invRows[${i}].unit=this.value">${unitOpts}</select></td>
+      <td><input type="number" style="width:80px;text-align:right" value="${row.price||0}" min="0" step="any"
+            onchange="invRows[${i}].price=parseFloat(this.value)||0;renderInvTable()"></td>
       <td class="total-cell">${fmtNum(amt)}</td>
       <td><button class="del-btn" onclick="invRows.splice(${i},1);renderInvTable()">×</button></td>
     </tr>`;
@@ -8339,7 +8399,7 @@ function renderInvTable() {
 }
 
 function addInvRow() {
-  invRows.push({desc:'', qty:0, price:0});
+  invRows.push({desc:'', qty:0, price:0, unit: invGetDefaultUnit()});
   renderInvTable();
 }
 
@@ -9382,15 +9442,19 @@ function generateInvoice() {
   const dest = document.getElementById('i-dest').value;
   const hs = document.getElementById('i-hs').value;
 
+  const cur = invGetCurrency();
+  const sym = INV_CUR_SYM[cur] || cur;
+
   let total = 0;
   let rows = invRows.map((r,i) => {
-    const amt = r.qty * r.price;
+    const amt = (r.qty||0) * (r.price||0);
     total += amt;
     return `<tr>
       <td>${i+1}</td>
-      <td>${r.desc}</td>
-      <td class="num">${r.qty}</td>
-      <td class="num">${fmtNum(r.price)}</td>
+      <td>${r.desc||''}</td>
+      <td class="num">${r.qty||0}</td>
+      <td class="num">${r.unit||invGetDefaultUnit()}</td>
+      <td class="num">${fmtNum(r.price||0)}</td>
       <td class="num">${fmtNum(amt)}</td>
     </tr>`;
   }).join('');
@@ -9429,14 +9493,15 @@ function generateInvoice() {
     <table class="preview-table">
       <thead><tr>
         <th>#</th><th>Description of Goods</th>
-        <th style="text-align:right">Qty (Mtrs)</th>
-        <th style="text-align:right">Unit Rate INR ₹</th>
-        <th style="text-align:right">Amount INR ₹</th>
+        <th style="text-align:right">Qty</th>
+        <th style="text-align:right">Unit</th>
+        <th style="text-align:right">Unit Rate ${cur} ${sym}</th>
+        <th style="text-align:right">Amount ${cur} ${sym}</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="preview-total-row">
-      <span>TOTAL INR ₹</span>
+      <span>TOTAL ${cur} ${sym}</span>
       <span>${fmtNum(total)}</span>
     </div>
   `;
@@ -15138,14 +15203,31 @@ function invApplyExtracted(dataStr) {
     }
   }
 
-  // Fill invoice rows
+  // Apply currency from invoice
+  if (data.currency) {
+    const curEl = document.getElementById('i-currency');
+    if (curEl) {
+      const opt = Array.from(curEl.options).find(o => o.value === data.currency);
+      if (opt) curEl.value = data.currency;
+    }
+  }
+
+  // Fill invoice rows (with unit from extracted data)
   if (data.items?.length) {
     invRows.length = 0;
+    // Detect default unit from first item
+    const firstUnit = data.items[0]?.unit || 'Pcs';
+    const unitEl = document.getElementById('i-default-unit');
+    if (unitEl) {
+      const opt = Array.from(unitEl.options).find(o => o.value === firstUnit);
+      if (opt) unitEl.value = firstUnit;
+    }
     data.items.forEach(it => {
       invRows.push({
         desc:  it.description || '',
-        qty:   parseFloat(it.quantity) || 0,
+        qty:   parseFloat(it.quantity)  || 0,
         price: parseFloat(it.unitPrice) || 0,
+        unit:  it.unit || firstUnit,
       });
     });
     renderInvTable();
