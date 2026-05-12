@@ -15403,7 +15403,7 @@ function contractSaveToStorage() {
     if (idx >= 0 && saved[idx].deliveryNum) {
       delivNum = saved[idx].deliveryNum; // keep existing
     } else {
-      delivNum = generateDeliveryNum(d.buyerPrefix || activeCompany, new Date(d.date || Date.now()).getFullYear());
+      delivNum = generateDeliveryNum(d.company || d.buyerPrefix || activeCompany, new Date(d.date || Date.now()).getFullYear());
     }
     const entry = { ...d, deliveryNum: delivNum, savedAt: new Date().toISOString() };
     if (idx >= 0) saved[idx] = entry; else saved.push(entry);
@@ -20971,7 +20971,8 @@ function shpSave() {
 function shpGenNumber() {
   const co  = activeCompany || 'ENDV';
   const yr  = new Date().getFullYear();
-  const all = DB_shipments.all();
+  // Count only shipments belonging to this company to avoid cross-company gaps
+  const all = DB_shipments.all().filter(s => (s.company || 'ENDV') === co);
   const cnt = all.filter(s => (s.shipment_number||'').startsWith(co+yr)).length + 1;
   return `${co}${yr}-${String(cnt).padStart(3,'0')}`;
 }
