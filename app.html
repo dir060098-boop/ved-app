@@ -23382,6 +23382,8 @@ let _cdtCurrent   = null;   // id of open declaration in detail modal
 ───────────────────────────────────────────────────────────────────── */
 
 function cdtSeed() {
+  if (localStorage.getItem('_cdt_seeded_v1')) return;
+  localStorage.setItem('_cdt_seeded_v1', '1');
   if (DB_customs_declarations.count() > 0) return;
 
   const s1 = DB_shipments.all().find(s => s.shipment_number === 'ENDV2026-001');
