@@ -4533,8 +4533,8 @@
     <div class="nav-item nav-sub" onclick="showSection('calc')">
       <span class="nav-icon">🔢</span> Калькулятор пошлин
     </div>
-    <div class="nav-item nav-sub" onclick="showSection('customs')">
-      <span class="nav-icon">✅</span> Чек-лист документов
+    <div class="nav-item nav-sub" onclick="showSection('shipments')" title="Документы управляются внутри карточки поставки">
+      <span class="nav-icon">✅</span> Документы поставки
     </div>
     <div class="nav-item nav-sub" onclick="showSection('customs-declarations')">
       <span class="nav-icon">🛃</span> Реестр ДТ
@@ -7706,6 +7706,24 @@
             </select>
           </div>
           <div class="field">
+            <label>Страна происхождения</label>
+            <select id="shp-f-from-country">
+              <option value="">— не указана —</option>
+              <option value="IN">🇮🇳 Индия</option>
+              <option value="CN">🇨🇳 Китай</option>
+              <option value="TR">🇹🇷 Турция</option>
+              <option value="AE">🇦🇪 ОАЭ</option>
+              <option value="DE">🇩🇪 Германия</option>
+              <option value="JP">🇯🇵 Япония</option>
+              <option value="KR">🇰🇷 Корея</option>
+              <option value="TH">🇹🇭 Таиланд</option>
+              <option value="VN">🇻🇳 Вьетнам</option>
+              <option value="BD">🇧🇩 Бангладеш</option>
+              <option value="PK">🇵🇰 Пакистан</option>
+              <option value="OTHER">Другая</option>
+            </select>
+          </div>
+          <div class="field">
             <label>Порт отгрузки</label>
             <input id="shp-f-from" placeholder="Nhava Sheva (INNSA)">
           </div>
@@ -10198,95 +10216,136 @@ function toggleExpand(id) {
 
 function renderDocPackage(s) {
   if (!s.docs) s.docs = [];
-  // Full migration: ensure every SHP_DOCS_LIST def is represented in s.docs with proper id
-  SHP_DOC_GROUPS.forEach(group => {
-    group.docs.forEach(def => {
-      let doc = s.docs.find(d => d.id === def.id);
-      if (!doc) {
-        // Try exact name match
-        doc = s.docs.find(d => !d.id && d.name === def.name);
-        if (!doc) {
-          // Try partial English prefix match (handles "Invoice / Счёт-фактура" → id "invoice")
-          const prefix = def.name.split(' / ')[0].toLowerCase().trim();
-          doc = s.docs.find(d => !d.id && d.name && d.name.toLowerCase().startsWith(prefix));
-        }
-        if (doc) {
-          doc.id = def.id; // fix legacy doc
-          if (!doc.icon) doc.icon = def.icon;
-          if (!doc.status) doc.status = doc.received ? 'received' : 'none';
-        } else {
-          // Add missing doc to s.docs
-          s.docs.push({ id: def.id, name: def.name, icon: def.icon, status: 'none', received: false });
-        }
-      }
-    });
+
+  // — Строим динамический набор по параметрам поставки —
+  const docGroups = buildDocSet(s);
+  const allDefs   = docGroups.flatMap(g => g.docs);
+
+  // — Миграция/синхронизация: гарантируем наличие каждого дефа в s.docs —
+  allDefs.forEach(def => {
+    let doc = s.docs.find(d => d.id === def.id);
+    if (!doc) {
+      const prefix = def.name.split(' / ')[0].toLowerCase().trim();
+      doc = s.docs.find(d => !d.id && d.name && d.name.toLowerCase().startsWith(prefix));
+      if (doc) { doc.id = def.id; if (!doc.icon) doc.icon = def.icon; }
+      else s.docs.push({ id: def.id, name: def.name, icon: def.icon, status: 'none', received: false, files: [] });
+    }
+    if (!doc.status) doc.status = doc.received ? 'received' : 'none';
+    if (!doc.files) doc.files = [];
   });
-  // Build lookup by id
+
+  // — Build lookup —
   const docMap = {};
   s.docs.forEach(d => { if (d.id) docMap[d.id] = d; });
 
-  const groupsHtml = SHP_DOC_GROUPS.map(group => {
+  // — Считаем статистику —
+  const reqDefs      = allDefs.filter(d => d.required);
+  const totalDocs    = allDefs.length;
+  const totalReq     = reqDefs.length;
+  const totalRecv    = allDefs.filter(d => { const doc = docMap[d.id]; return doc && doc.status !== 'none'; }).length;
+  const totalScanned = allDefs.filter(d => { const doc = docMap[d.id]; return doc && doc.files && doc.files.length > 0; }).length;
+  const reqMissingScan = reqDefs.filter(d => { const doc = docMap[d.id]; return !doc || !doc.files || doc.files.length === 0; });
+
+  // — Сводный badge —
+  const recvPct   = Math.round(totalRecv    / totalDocs    * 100);
+  const scanPct   = Math.round(totalScanned / totalDocs    * 100);
+  const badgeColor = totalScanned === totalReq ? '#22c55e' : reqMissingScan.length > 0 ? '#f59e0b' : '#6ee7b7';
+  const badgeHtml = `
+    <div style="display:flex;gap:16px;align-items:center;background:var(--surface2);border:1px solid var(--border);
+                border-radius:var(--radius);padding:12px 16px;margin-bottom:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:160px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Получено документов</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-weight:800;font-size:18px;color:var(--co-accent)">${totalRecv}<span style="font-size:12px;font-weight:400;color:var(--text3)">/${totalDocs}</span></div>
+          <div style="flex:1;height:5px;border-radius:3px;background:var(--surface3)">
+            <div style="height:100%;border-radius:3px;background:var(--co-accent);width:${recvPct}%"></div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:160px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Сканов загружено</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-weight:800;font-size:18px;color:${badgeColor}">${totalScanned}<span style="font-size:12px;font-weight:400;color:var(--text3)">/${totalDocs}</span></div>
+          <div style="flex:1;height:5px;border-radius:3px;background:var(--surface3)">
+            <div style="height:100%;border-radius:3px;background:${badgeColor};width:${scanPct}%"></div>
+          </div>
+        </div>
+      </div>
+      ${reqMissingScan.length > 0
+        ? `<div style="font-size:11px;color:#f59e0b;background:rgba(245,158,11,0.1);border-radius:6px;padding:6px 10px;line-height:1.5">
+             ⚠️ Нет скана (обязательные):<br>${reqMissingScan.map(d=>`<b>${d.icon} ${d.name.split(' / ')[0]}</b>`).join(', ')}
+           </div>`
+        : `<div style="font-size:11px;color:#22c55e;font-weight:600">✅ Все обязательные сканы загружены</div>`}
+      <div style="font-size:10px;color:var(--text3);font-style:italic">
+        ${s.mode ? `${{sea:'🚢 Море',air:'✈️ Авиа',rail:'🚂 ЖД',road:'🚛 Авто',multi:'🔄 Мульти'}[s.mode]||s.mode}` : ''}
+        ${s.incoterms ? ' · '+s.incoterms : ''}${s.from_country ? ' · '+s.from_country : ''}
+      </div>
+    </div>`;
+
+  // — Рендер групп —
+  const groupsHtml = docGroups.map(group => {
     const rowsHtml = group.docs.map(def => {
       let doc = docMap[def.id];
       if (!doc) {
-        doc = { id: def.id, name: def.name, icon: def.icon, status: 'none', received: false };
-        s.docs.push(doc);
-        docMap[def.id] = doc;
+        doc = { id: def.id, name: def.name, icon: def.icon, status: 'none', received: false, files: [] };
+        s.docs.push(doc); docMap[def.id] = doc;
       }
-      if (!doc.status) doc.status = doc.received ? 'received' : 'none';
       const st = DOC_STATUS_CYCLE[doc.status] || DOC_STATUS_CYCLE.none;
-      // Build file chips for attached scans
+      const hasScans = doc.files && doc.files.length > 0;
+
+      // Чип «скан загружен / нет скана»
+      const scanBadge = hasScans
+        ? `<span style="font-size:10px;background:rgba(34,197,94,0.12);color:#16a34a;border:1px solid rgba(34,197,94,0.3);
+                        border-radius:10px;padding:1px 7px;font-family:'Fira Code',monospace">🗂 ${doc.files.length} скан</span>`
+        : (def.required
+            ? `<span style="font-size:10px;background:rgba(245,158,11,0.1);color:#d97706;border:1px solid rgba(245,158,11,0.3);
+                            border-radius:10px;padding:1px 7px">⚠ нет скана</span>`
+            : `<span style="font-size:10px;color:var(--text3);padding:1px 7px">без скана</span>`);
+
       const filesHtml = (doc.files || []).map((f, fi) =>
         `<div class="yd-file-chip" title="${f.name}">` +
         `<span>${f.name}</span>` +
-        `<a href="javascript:void(0)" onclick="event.stopPropagation();ydOpenFile('${f.path.replace(/'/g,"\\'")}')" title="Открыть">👁</a>` +
-        `<button onclick="event.stopPropagation();ydRemoveFile('${s.id}','${def.id}',${fi})" title="Удалить ссылку">✕</button>` +
+        `<a href="javascript:void(0)" onclick="event.stopPropagation();ydOpenFile('${f.path.replace(/'/g,"\\'")}')">👁</a>` +
+        `<button onclick="event.stopPropagation();ydRemoveFile('${s.id}','${def.id}',${fi})">✕</button>` +
         `</div>`
       ).join('');
-      // Upload button always visible: if no token — redirect to YD settings
+
       const uploadBtn = ydToken()
         ? `<div class="yd-upload-wrap" style="display:inline-block" onclick="event.stopPropagation()">` +
           `<label class="yd-upload-btn" title="Загрузить скан на Яндекс Диск">` +
           `📎 Скан<input type="file" accept=".pdf,.jpg,.jpeg,.png,.tiff" style="display:none" onchange="ydHandleUpload(this,'${s.id}','${def.id}')"></label>` +
           `</div>`
-        : `<button class="yd-upload-btn" onclick="event.stopPropagation();navTo('admin');setTimeout(()=>{const el=document.getElementById('yd-status-bar');if(el)el.scrollIntoView({behavior:'smooth'})},400)" title="Подключите Яндекс Диск для загрузки сканов">☁️ Диск</button>`;
-      return '<div class="doc-pkg-row">' +
-        '<div style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer" onclick="toggleDoc(\'' + s.id + '\',\'' + def.id + '\')">' +
-        '<div class="doc-pkg-icon">' + def.icon + '</div>' +
-        '<div class="doc-pkg-name' + (def.required ? ' required-doc' : '') + '">' + def.name + '</div>' +
-        '<div class="doc-status-btn ' + st.cls + '">' + st.icon + ' ' + st.label + '</div>' +
-        '</div>' +
-        '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-left:6px">' + filesHtml + uploadBtn + '</div>' +
-        '</div>';
+        : `<button class="yd-upload-btn" onclick="event.stopPropagation();navTo('admin');setTimeout(()=>{const el=document.getElementById('yd-status-bar');if(el)el.scrollIntoView({behavior:'smooth'})},400)">☁️ Диск</button>`;
+
+      return `<div class="doc-pkg-row">
+        <div style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer;min-width:0" onclick="toggleDoc('${s.id}','${def.id}')">
+          <div class="doc-pkg-icon">${def.icon}</div>
+          <div class="doc-pkg-name${def.required ? ' required-doc' : ''}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${def.name}</div>
+          <div class="doc-status-btn ${st.cls}" style="flex-shrink:0">${st.icon} ${st.label}</div>
+          ${scanBadge}
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-left:6px">${filesHtml}${uploadBtn}</div>
+      </div>`;
     }).join('');
 
-    const groupReceived = group.docs.filter(def => {
-      const doc = docMap[def.id];
-      return doc && (doc.status === 'received' || doc.status === 'submitted');
-    }).length;
+    const grpRecv = group.docs.filter(d => { const doc = docMap[d.id]; return doc && doc.status !== 'none'; }).length;
+    const grpScan = group.docs.filter(d => { const doc = docMap[d.id]; return doc && doc.files && doc.files.length > 0; }).length;
 
-    return '<div class="doc-pkg-group">' +
-      '<div class="doc-group-header"><span>' + group.label + '</span>' +
-      '<span class="doc-group-progress">' + groupReceived + '/' + group.docs.length + '</span></div>' +
-      rowsHtml + '</div>';
+    return `<div class="doc-pkg-group">
+      <div class="doc-group-header">
+        <span>${group.label}</span>
+        <span class="doc-group-progress">📄 ${grpRecv}/${group.docs.length} · 🗂 ${grpScan} сканов</span>
+      </div>${rowsHtml}</div>`;
   }).join('');
 
-  const totalDocs = SHP_DOC_GROUPS.reduce((a, g) => a + g.docs.length, 0);
-  const totalReceived = SHP_DOC_GROUPS.reduce((a, g) => a + g.docs.filter(def => {
-    const doc = docMap[def.id];
-    return doc && (doc.status === 'received' || doc.status === 'submitted');
-  }).length, 0);
-
-  // Count total attached files
   const totalFiles = (s.docs || []).reduce((a, d) => a + (d.files ? d.files.length : 0), 0);
-  // Package button always visible; downloadCustomsPackage() checks token internally
   const pkgBtn = `<button id="yd-pkg-btn-${s.id}" class="yd-pkg-btn" onclick="downloadCustomsPackage('${s.id}')" style="margin-top:12px">` +
     `📦 Открыть пакет на Диске${totalFiles ? ' (' + totalFiles + ' файлов)' : ''}</button>`;
 
-  return '<div class="block-title" style="margin-bottom:10px">Пакет документов (' + totalReceived + '/' + totalDocs + ' получено)</div>' +
-    '<div style="font-size:10px;color:var(--text3);margin-bottom:10px;font-family:\'JetBrains Mono\',monospace">' +
-    'Нажмите на статус для переключения: ⬜ Не получен → 📩 Запрошен → ✅ Получен → 🏛️ На таможне</div>' +
-    groupsHtml + pkgBtn;
+  return `<div class="block-title" style="margin-bottom:10px">Пакет документов</div>` +
+    `<div style="font-size:10px;color:var(--text3);margin-bottom:10px;font-family:'JetBrains Mono',monospace">` +
+    `Набор документов подобран по: транспорт · страна · инкотермс · Нажмите статус для переключения</div>` +
+    badgeHtml + groupsHtml + pkgBtn;
 }
 
 function buildDetailHTML(s) {
@@ -19186,35 +19245,99 @@ const SHP_STATUSES = {
   archived:   { label:'Архив',     icon:'📁', cls:'cancelled'  },
 };
 
-const SHP_DOC_GROUPS = [
-  { id: 'commercial', label: 'Коммерческие документы', docs: [
-    { id: 'invoice',      name: 'Invoice / Инвойс',                   icon: '🧾', required: true  },
-    { id: 'packing',      name: 'Packing List / Упаковочный лист',     icon: '📦', required: true  },
-    { id: 'proforma',     name: 'Proforma / Проформа-инвойс',          icon: '📋', required: false },
-  ]},
-  { id: 'transport', label: 'Транспортные документы', docs: [
-    { id: 'bl',           name: 'Bill of Lading / Коносамент (B/L)',   icon: '🚢', required: true  },
-    { id: 'cmr',          name: 'CMR / Автотранспортная накладная',    icon: '🚛', required: false },
-    { id: 'awb',          name: 'Air Waybill (AWB)',                   icon: '✈️', required: false },
-    { id: 'railway',      name: 'Ж/Д накладная (SMGS/CIM)',            icon: '🚂', required: false },
-    { id: 'freight_inv',  name: 'Freight Invoice / Счёт экспедитора',  icon: '💰', required: false },
-  ]},
-  { id: 'origin', label: 'Документы о происхождении', docs: [
-    { id: 'cert_origin',  name: 'Certificate of Origin / Серт. происх.', icon: '🌐', required: true  },
-  ]},
-  { id: 'quality', label: 'Качество и сертификаты', docs: [
-    { id: 'cert_quality', name: 'Quality Certificate / Серт. качества',   icon: '🏆', required: false },
-    { id: 'cert_tech',    name: 'Technical Passport / Техпаспорт',         icon: '📄', required: false },
-    { id: 'datasheet',    name: 'Datasheet / Техническое описание',        icon: '📐', required: false },
-  ]},
-  { id: 'customs_pkg', label: 'Таможенные документы', docs: [
-    { id: 'dt',           name: 'Таможенная декларация (ДТ)',              icon: '🏛️', required: true  },
-    { id: 'payment_cust', name: 'Платёжка за таможню',                    icon: '🏦', required: true  },
-  ]},
-];
+// ── Полный справочник всех возможных документов ────────────────
+const SHP_ALL_DOCS = {
+  // Коммерческие
+  invoice:      { name: 'Invoice / Инвойс',                     icon: '🧾' },
+  packing:      { name: 'Packing List / Упаковочный лист',       icon: '📦' },
+  proforma:     { name: 'Proforma / Проформа-инвойс',            icon: '📋' },
+  // Транспортные
+  bl:           { name: 'Bill of Lading / Коносамент (B/L)',     icon: '🚢' },
+  cmr:          { name: 'CMR / Автотранспортная накладная',      icon: '🚛' },
+  awb:          { name: 'Air Waybill (AWB)',                     icon: '✈️' },
+  railway:      { name: 'Ж/Д накладная (СМГС/CIM)',              icon: '🚂' },
+  freight_inv:  { name: 'Freight Invoice / Счёт экспедитора',    icon: '💰' },
+  // Происхождение
+  cert_origin:  { name: 'Certificate of Origin / Серт. происх.', icon: '🌐' },
+  cert_origin_a:{ name: 'Серт. происхождения Form A (GSP)',       icon: '🌐' },
+  // Качество
+  cert_quality: { name: 'Quality Certificate / Серт. качества',  icon: '🏆' },
+  cert_tech:    { name: 'Technical Passport / Техпаспорт',        icon: '📄' },
+  datasheet:    { name: 'Datasheet / Техническое описание',       icon: '📐' },
+  cert_trts:    { name: 'Сертификат ТР ТС / Декларация ТР ТС',   icon: '🛡️' },
+  cert_fumig:   { name: 'Фитосанитарный / Фумигация',            icon: '🌿' },
+  // Таможенные
+  dt:           { name: 'Таможенная декларация (ДТ)',             icon: '🏛️' },
+  payment_cust: { name: 'Платёжное поручение за таможню',         icon: '🏦' },
+  ins_cert:     { name: 'Insurance Certificate / Страховка',      icon: '🛡️' },
+};
 
-// Flat list (backward compat)
-const SHP_DOCS_LIST = SHP_DOC_GROUPS.flatMap(g => g.docs);
+// ── Динамический набор документов по параметрам поставки ───────
+function buildDocSet(s) {
+  const mode    = s.mode || 'sea';
+  const country = (s.from_country || s.from || '').toUpperCase();
+  const inco    = (s.incoterms || '').toUpperCase();
+
+  // Транспортный документ — зависит от вида транспорта
+  const transportDoc = {
+    sea:   [{ id:'bl',      required: true  }, { id:'freight_inv', required: false }],
+    air:   [{ id:'awb',     required: true  }, { id:'freight_inv', required: false }],
+    rail:  [{ id:'railway', required: true  }, { id:'freight_inv', required: false }],
+    road:  [{ id:'cmr',     required: true  }, { id:'freight_inv', required: false }],
+    multi: [{ id:'bl',      required: true  }, { id:'cmr', required: false }, { id:'awb', required: false }, { id:'freight_inv', required: false }],
+  }[mode] || [{ id:'bl', required: true }];
+
+  // Сертификат происхождения: Form A для Индии/Китая/стран СНГ
+  const isGspCountry = /INDIA|ИНДИЯ|IN|CHINA|КИТАЙ|CN|BD|PK|VN|TH|ID/.test(country);
+  const originDoc = isGspCountry
+    ? { id: 'cert_origin_a', required: true }
+    : { id: 'cert_origin',   required: true };
+
+  // Страховка — нужна при CIF/CIP
+  const needsInsurance = /CIF|CIP/.test(inco);
+
+  const groups = [
+    {
+      id: 'commercial', label: 'Коммерческие документы', docs: [
+        { id: 'invoice',  required: true  },
+        { id: 'packing',  required: true  },
+        { id: 'proforma', required: false },
+        ...(needsInsurance ? [{ id: 'ins_cert', required: true }] : []),
+      ]
+    },
+    {
+      id: 'transport', label: 'Транспортные документы', docs: transportDoc
+    },
+    {
+      id: 'origin', label: 'Документы о происхождении', docs: [originDoc]
+    },
+    {
+      id: 'quality', label: 'Качество и сертификаты', docs: [
+        { id: 'cert_quality', required: false },
+        { id: 'cert_tech',    required: false },
+        { id: 'datasheet',    required: false },
+        { id: 'cert_trts',    required: false },
+        { id: 'cert_fumig',   required: false },
+      ]
+    },
+    {
+      id: 'customs_pkg', label: 'Таможенные документы', docs: [
+        { id: 'dt',           required: true  },
+        { id: 'payment_cust', required: true  },
+      ]
+    },
+  ];
+
+  // Обогащаем каждый doc-объект именем и иконкой из справочника
+  return groups.map(g => ({
+    ...g,
+    docs: g.docs.map(d => ({ ...SHP_ALL_DOCS[d.id], ...d })).filter(d => d.name)
+  }));
+}
+
+// Для обратной совместимости — статический список (используется в старом чек-листе)
+const SHP_DOC_GROUPS = buildDocSet({ mode: 'sea', from_country: '' });
+const SHP_DOCS_LIST  = SHP_DOC_GROUPS.flatMap(g => g.docs);
 
 const DOC_STATUS_CYCLE = {
   none:      { label: 'Не получен', icon: '⬜', cls: 'st-none',      next: 'requested' },
@@ -20319,9 +20442,10 @@ function shpOpenForm(id) {
   document.getElementById('shp-f-inco').value      = s?.incoterms       || '';
   document.getElementById('shp-f-value').value     = s?.total_value     || '';
   document.getElementById('shp-f-currency').value  = s?.currency        || 'USD';
-  document.getElementById('shp-f-mode').value      = s?.mode            || 'sea';
-  document.getElementById('shp-f-from').value      = s?.from            || '';
-  document.getElementById('shp-f-to').value        = s?.to              || '';
+  document.getElementById('shp-f-mode').value         = s?.mode            || 'sea';
+  document.getElementById('shp-f-from-country').value = s?.from_country   || '';
+  document.getElementById('shp-f-from').value         = s?.from            || '';
+  document.getElementById('shp-f-to').value           = s?.to              || '';
   document.getElementById('shp-f-stage').value     = String(s?.current_stage ?? 0);
   document.getElementById('shp-f-contract').value  = s?.contract_id     || '';
   document.getElementById('shp-f-notes').value     = s?.notes           || '';
@@ -20382,9 +20506,10 @@ function shpSave() {
     incoterms:   document.getElementById('shp-f-inco').value,
     total_value: parseFloat(document.getElementById('shp-f-value').value) || 0,
     currency:    document.getElementById('shp-f-currency').value,
-    mode:        document.getElementById('shp-f-mode').value,
-    from:        document.getElementById('shp-f-from').value.trim(),
-    to:          document.getElementById('shp-f-to').value.trim(),
+    mode:         document.getElementById('shp-f-mode').value,
+    from_country: document.getElementById('shp-f-from-country').value,
+    from:         document.getElementById('shp-f-from').value.trim(),
+    to:           document.getElementById('shp-f-to').value.trim(),
     forwarder_id:document.getElementById('shp-f-forwarder').value || '',
     broker_id:   document.getElementById('shp-f-broker').value    || '',
     current_stage: parseInt(document.getElementById('shp-f-stage').value) || 0,
@@ -20454,6 +20579,21 @@ function shpArchiveCurrent() {
     shpLoad();
     showToast('↩ Поставка восстановлена из архива');
     return;
+  }
+
+  // — Шлюз: проверяем наличие сканов обязательных документов —
+  const docGroups = buildDocSet(s);
+  const reqDefs   = docGroups.flatMap(g => g.docs).filter(d => d.required);
+  const missingScan = reqDefs.filter(def => {
+    const doc = (s.docs || []).find(d => d.id === def.id);
+    return !doc || !doc.files || doc.files.length === 0;
+  });
+  if (missingScan.length > 0) {
+    const names = missingScan.map(d => `• ${d.icon} ${d.name.split(' / ')[0]}`).join('\n');
+    const proceed = confirm(
+      `⚠️ Не загружены сканы обязательных документов:\n${names}\n\nАрхивировать без сканов?\n(Рекомендуется сначала загрузить все сканы)`
+    );
+    if (!proceed) return;
   }
 
   // Ask for DT date (дата выпуска ТД)
