@@ -16301,33 +16301,44 @@ function spSetStatus(type, msg) {
   el.innerHTML = '<span style="color:' + (colors[type]||'var(--text2)') + '">' + msg + '</span>';
 }
 
+const SP_UNITS = ['Pcs','Kgs','Mtrs','Sets','Rolls','Coils','Drums','Cartons','L','T','m²','Box'];
+
 function spShowPreview(d) {
   const el = document.getElementById('sp-preview-content');
   if (!el || !d) return;
 
-  // Items table
+  // Items table — editable fields so user can correct before applying
   let html = '';
   if (d.items && d.items.length) {
-    html += '<div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Товарные позиции (' + d.items.length + ')</div>';
+    html += '<div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Товарные позиции (' + d.items.length + ') — <span style="color:var(--co-accent);font-weight:500">редактируйте прямо здесь перед применением</span></div>';
     html += '<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:14px">';
     html += '<thead><tr style="background:var(--surface3,var(--border2))">';
     html += '<th style="padding:5px 8px;text-align:left;color:var(--text3)">Описание</th>';
-    html += '<th style="padding:5px 8px;text-align:right;color:var(--text3);width:60px">Кол-во</th>';
-    html += '<th style="padding:5px 8px;text-align:left;color:var(--text3);width:50px">Ед.</th>';
-    html += '<th style="padding:5px 8px;text-align:right;color:var(--text3);width:100px">Цена</th>';
-    html += '<th style="padding:5px 8px;text-align:right;color:var(--text3);width:100px">Сумма</th>';
+    html += '<th style="padding:5px 8px;text-align:right;color:var(--text3);width:70px">Кол-во</th>';
+    html += '<th style="padding:5px 8px;text-align:left;color:var(--text3);width:80px">Ед. изм.</th>';
+    html += '<th style="padding:5px 8px;text-align:right;color:var(--text3);width:90px">Цена</th>';
+    html += '<th style="padding:5px 8px;text-align:right;color:var(--text3);width:90px">Сумма</th>';
     html += '<th style="padding:5px 8px;text-align:left;color:var(--text3);width:80px">HS</th>';
-    html += '</tr></thead><tbody>';
+    html += '</tr></thead><tbody id="sp-preview-tbody">';
     d.items.forEach((it, i) => {
       const amt = (it.qty||0) * (it.price||0);
       const bg = i % 2 === 0 ? '' : 'background:var(--surface2)';
-      html += '<tr style="' + bg + '">';
-      html += '<td style="padding:5px 8px">' + (it.desc||'') + (it.descRu && it.descRu !== it.desc ? '<br><span style="color:var(--text3);font-size:10px">' + it.descRu + '</span>' : '') + '</td>';
-      html += '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + (it.qty||0) + '</td>';
-      html += '<td style="padding:5px 8px">' + (it.unit||'') + '</td>';
-      html += '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + fmtNum(it.price||0) + '</td>';
-      html += '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:600">' + fmtNum(amt) + '</td>';
-      html += '<td style="padding:5px 8px;font-family:\'JetBrains Mono\',monospace;font-size:10px;color:var(--text3)">' + (it.hs||'—') + '</td>';
+      const unitOpts = SP_UNITS.map(u => `<option${u===(it.unit||'Pcs')?' selected':''}>${u}</option>`).join('');
+      html += `<tr style="${bg}" data-sp-idx="${i}">`;
+      html += `<td style="padding:4px 8px">${it.desc||''}`
+            + (it.descRu && it.descRu !== it.desc ? `<br><span style="color:var(--text3);font-size:10px">${it.descRu}</span>` : '')
+            + '</td>';
+      html += `<td style="padding:4px 6px"><input type="number" data-sp-qty="${i}" value="${it.qty||0}" min="0" step="any"
+                style="width:64px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right;background:var(--surface)"
+                oninput="spPreviewRecalcRow(${i})"></td>`;
+      html += `<td style="padding:4px 6px"><select data-sp-unit="${i}"
+                style="padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:var(--surface);color:var(--text)">
+                ${unitOpts}</select></td>`;
+      html += `<td style="padding:4px 6px"><input type="number" data-sp-price="${i}" value="${it.price||0}" min="0" step="any"
+                style="width:80px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right;background:var(--surface)"
+                oninput="spPreviewRecalcRow(${i})"></td>`;
+      html += `<td style="padding:4px 6px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600" id="sp-prev-amt-${i}">${fmtNum(amt)}</td>`;
+      html += `<td style="padding:4px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text3)">${it.hs||'—'}</td>`;
       html += '</tr>';
     });
     html += '</tbody></table>';
@@ -16357,9 +16368,31 @@ function spShowPreview(d) {
   document.getElementById('sp-import-preview').style.display = 'block';
 }
 
+// Recalculate row total when qty or price changes in preview
+function spPreviewRecalcRow(i) {
+  const qty   = parseFloat(document.querySelector(`[data-sp-qty="${i}"]`)?.value)   || 0;
+  const price = parseFloat(document.querySelector(`[data-sp-price="${i}"]`)?.value) || 0;
+  const el    = document.getElementById(`sp-prev-amt-${i}`);
+  if (el) el.textContent = fmtNum(qty * price);
+}
+
+// Read edited values from preview table back into _spExtracted before applying
+function _spSyncPreviewEdits() {
+  if (!_spExtracted || !_spExtracted.items) return;
+  _spExtracted.items.forEach((it, i) => {
+    const qtyEl   = document.querySelector(`[data-sp-qty="${i}"]`);
+    const unitEl  = document.querySelector(`[data-sp-unit="${i}"]`);
+    const priceEl = document.querySelector(`[data-sp-price="${i}"]`);
+    if (qtyEl)   it.qty   = parseFloat(qtyEl.value)   || 0;
+    if (unitEl)  it.unit  = unitEl.value;
+    if (priceEl) it.price = parseFloat(priceEl.value) || 0;
+  });
+}
+
 function spApplyExtracted() {
   const d = _spExtracted;
   if (!d) return;
+  _spSyncPreviewEdits();
   _spApplyItems(d);
   _spApplySupplier(d);
   document.getElementById('sp-import-preview').style.display = 'none';
@@ -16367,7 +16400,9 @@ function spApplyExtracted() {
 }
 
 function spApplyItemsOnly() {
-  if (_spExtracted) _spApplyItems(_spExtracted);
+  if (!_spExtracted) return;
+  _spSyncPreviewEdits();
+  _spApplyItems(_spExtracted);
   document.getElementById('sp-import-preview').style.display = 'none';
   spSetStatus('success', '✅ Товарные позиции добавлены');
 }
