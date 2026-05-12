@@ -19124,6 +19124,8 @@ let _catPickerCb = null;      // callback(product) when picker used from Spec/In
 
 /* ── Seed demo data ─────────────────────────────────────────────── */
 function catSeed() {
+  if (localStorage.getItem('_cat_seeded_v1')) return;
+  localStorage.setItem('_cat_seeded_v1', '1');
   if (DB_products.count() > 0) return;
   const sup1 = (() => {
     try { const s = JSON.parse(localStorage.getItem('ved_suppliers')||'[]'); return s[0]?.id||null; } catch(e){ return null; }
@@ -21602,6 +21604,8 @@ const TRK_STATUSES = {
 
 /* ── Seed demo tracking events for existing demo shipments ──────── */
 function trkSeed() {
+  if (localStorage.getItem('_trk_seeded_v1')) return;
+  localStorage.setItem('_trk_seeded_v1', '1');
   if (DB_shipments_tracking.count() > 0) return;
   try {
     // Find demo shipment ENDV2026-001
@@ -22068,6 +22072,8 @@ function finCurrSym(cur) {
 
 /* ── Seed demo budgets for demo shipments ────────────────────────── */
 function finSeedBudgets() {
+  if (localStorage.getItem('_fin_budgets_seeded_v1')) return;
+  localStorage.setItem('_fin_budgets_seeded_v1', '1');
   if (DB_shipment_budget.count() > 0) return;
   try {
     const s1 = DB_shipments.all().find(s => s.shipment_number === 'ENDV2026-001');
