@@ -958,6 +958,11 @@
   .event-text b { font-weight: 600; color: var(--text); }
   .event-note { color: var(--text3); font-size: 11px; margin-top: 2px; }
 
+  /* ── Template Library ── */
+  .tpl-card { display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface2); cursor:pointer; transition:all 0.15s; }
+  .tpl-card:hover { border-color:var(--co-accent); background:var(--co-accent-light); }
+  .tpl-card.active { border-color:var(--co-accent); background:var(--co-accent-light); box-shadow:0 0 0 2px var(--co-accent-border); }
+
   /* ── Яндекс Диск / Document scans ── */
   .yd-status-bar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); font-size:12px; margin-bottom:16px; }
   .yd-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
@@ -4533,8 +4538,8 @@
     <div class="nav-item nav-sub" onclick="showSection('calc')">
       <span class="nav-icon">🔢</span> Калькулятор пошлин
     </div>
-    <div class="nav-item nav-sub" onclick="showSection('shipments')" title="Документы управляются внутри карточки поставки">
-      <span class="nav-icon">✅</span> Документы поставки
+    <div class="nav-item nav-sub" onclick="showSection('customs')">
+      <span class="nav-icon">📝</span> Шаблоны писем
     </div>
     <div class="nav-item nav-sub" onclick="showSection('customs-declarations')">
       <span class="nav-icon">🛃</span> Реестр ДТ
@@ -5944,198 +5949,28 @@
 
     <!-- CUSTOMS CHECKLIST -->
     <div id="section-customs" class="section">
-      <div class="section-title">Чек-лист документов</div>
-      <div class="section-sub">Customs Checklist · пакет документов для таможенного оформления</div>
+      <div class="section-title">📝 Библиотека шаблонов</div>
+      <div class="section-sub">Готовые письма поставщикам и брокерам · автоподстановка из данных поставки</div>
 
-      <!-- CONTROLS -->
-      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:28px">
-        <div class="field" style="min-width:200px">
-          <label>ТН ВЭД (первые 4 цифры)</label>
-          <input id="cl-tnved" placeholder="8544" maxlength="10" oninput="filterByTnved()">
+      <!-- TPL LAYOUT -->
+      <div style="display:grid;grid-template-columns:280px 1fr;gap:20px;align-items:start" id="tpl-layout">
+
+        <!-- LEFT: список шаблонов -->
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">📧 Поставщику (English)</div>
+          <div id="tpl-list-supplier" style="display:flex;flex-direction:column;gap:6px"></div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin:18px 0 10px">🛃 Таможенному брокеру</div>
+          <div id="tpl-list-broker" style="display:flex;flex-direction:column;gap:6px"></div>
         </div>
-        <div class="field" style="min-width:160px">
-          <label>Страна происхождения</label>
-          <select id="cl-country" onchange="filterByTnved()">
-            <option value="IN">Индия</option>
-            <option value="CN">Китай</option>
-            <option value="TR">Турция</option>
-            <option value="DE">Германия</option>
-            <option value="OTHER">Другая</option>
-          </select>
-        </div>
-        <div class="field" style="min-width:160px">
-          <label>Тип импорта</label>
-          <select id="cl-type" onchange="filterByTnved()">
-            <option value="commercial">Коммерческий</option>
-            <option value="sample">Образцы</option>
-          </select>
-        </div>
-        <button class="gen-btn" onclick="resetChecklist()" style="margin-top:0;padding:10px 20px">↺ Сбросить</button>
-        <button class="gen-btn secondary" onclick="window.print()" style="margin-top:0;padding:10px 20px">🖨 Печать</button>
-      </div>
 
-      <!-- PROGRESS BAR -->
-      <div id="cl-progress-wrap" style="margin-bottom:28px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">Готовность документов</div>
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500" id="cl-pct-label">0 / 0</div>
-        </div>
-        <div style="height:6px;background:var(--border);width:100%">
-          <div id="cl-progress-bar" style="height:100%;background:var(--accent);width:0%;transition:width 0.4s"></div>
-        </div>
-      </div>
-
-      <!-- CHECKLIST GROUPS -->
-      <div id="cl-groups"></div>
-
-      <!-- NOTES -->
-      <div style="margin-top:32px">
-        <div class="block-title">Примечания / Комментарии</div>
-        <textarea id="cl-notes" rows="4" placeholder="Заметки по конкретной поставке, особые требования таможни..." style="width:100%;margin-top:8px"></textarea>
-      </div>
-
-      <!-- INFO BOX -->
-      <div id="cl-infobox" style="margin-top:24px;padding:20px 24px;background:var(--card);border-left:3px solid var(--accent2);border:1px solid var(--border)">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--accent2);margin-bottom:12px">Справка · Импорт кабельной продукции (ТН ВЭД 8544)</div>
-        <div style="font-size:12px;line-height:1.8;color:var(--text)" id="cl-info-text"></div>
-      </div>
-    </div>
-
-    <!-- ADMIN -->
-    <div id="section-admin" class="section">
-      <div class="section-title">Управление пользователями</div>
-      <div class="section-sub">Доступ · Роли · Отделы</div>
-
-      <!-- DELIVERY COUNTERS -->
-      <div style="margin-bottom:28px">
-        <div class="block-title" style="margin-bottom:12px">Счётчики номеров поставок</div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Стартовый счётчик = количество поставок <b>до</b> внедрения системы. Следующая поставка получит номер <b>стартовый+1</b>. Изменение не затрагивает уже выданные номера.</div>
-        <div id="delivery-counters-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin-bottom:12px"></div>
-        <button class="gen-btn secondary" onclick="addCounterRow()" style="margin:0;padding:7px 14px;font-size:12px">+ Добавить год / компанию</button>
-      </div>
-      <hr style="border:none;border-top:1px solid var(--border);margin-bottom:24px">
-
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-        <div style="font-size:12px;color:var(--text3)">Пользователи системы ВЭД</div>
-        <button class="gen-btn" onclick="toggleAddUserForm()" style="margin-top:0;padding:9px 18px">+ Добавить пользователя</button>
-      </div>
-
-      <!-- ADD USER FORM -->
-      <div class="add-user-form" id="add-user-form" style="display:none;margin-bottom:24px">
-        <div class="block-title" style="margin-bottom:16px">Новый пользователь</div>
-        <div class="form-grid cols-3">
-          <div class="field">
-            <label>Имя / ФИО</label>
-            <input id="nu-name" placeholder="Иванов Иван">
-          </div>
-          <div class="field">
-            <label>Логин</label>
-            <input id="nu-login" placeholder="ivanov">
-          </div>
-          <div class="field">
-            <label>Пароль</label>
-            <input id="nu-pass" type="password" placeholder="••••••••">
-          </div>
-          <div class="field">
-            <label>Отдел</label>
-            <select id="nu-dept">
-              <option value="ved">ВЭД / Таможня</option>
-              <option value="log">Логистика</option>
-              <option value="buh">Бухгалтерия</option>
-              <option value="mgmt">Руководство</option>
-              <option value="admin">Администратор</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Доступные модули</label>
-            <select id="nu-access" multiple style="height:80px">
-              <option value="all" selected>Все модули</option>
-              <option value="contract">Договор</option>
-              <option value="spec">Спецификация</option>
-              <option value="invoice">Инвойс</option>
-              <option value="rfq">Экспедитор</option>
-              <option value="tracker">Трекер</option>
-              <option value="customs">Таможня</option>
-            </select>
+        <!-- RIGHT: форма генерации + превью -->
+        <div id="tpl-right">
+          <div style="text-align:center;padding:60px 20px;color:var(--text3);border:1px dashed var(--border);border-radius:var(--radius)">
+            <div style="font-size:40px;margin-bottom:12px">📝</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text2);margin-bottom:6px">Выберите шаблон</div>
+            <div style="font-size:12px">Нажмите на любой шаблон слева</div>
           </div>
         </div>
-        <div style="display:flex;gap:10px;margin-top:16px">
-          <button class="gen-btn" onclick="addUser()" style="margin-top:0;padding:9px 18px">Сохранить</button>
-          <button class="gen-btn secondary" onclick="toggleAddUserForm()" style="margin-top:0;padding:9px 18px">Отмена</button>
-        </div>
-        <div id="add-user-msg" style="margin-top:10px;font-size:11px;font-family:'Fira Code',monospace"></div>
-      </div>
-
-      <!-- USERS TABLE -->
-      <div style="overflow-x:auto">
-        <table class="admin-table" id="admin-users-table">
-          <thead>
-            <tr>
-              <th>Имя / ФИО</th>
-              <th>Логин</th>
-              <th>Отдел</th>
-              <th>Доступ</th>
-              <th>Статус</th>
-              <th>Действия</th>
-            </tr>
-          </thead>
-          <tbody id="admin-users-body"></tbody>
-        </table>
-      </div>
-      <div style="margin-top:16px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text3);font-family:'Fira Code',monospace">
-        ⓘ Пользователи хранятся в браузере (localStorage). Для общего использования — разверните приложение на сервере.
-      </div>
-
-      <hr style="border:none;border-top:1px solid var(--border);margin:28px 0">
-
-      <!-- ── ЯНДЕКС ДИСК ── -->
-      <div class="block-title" style="margin-bottom:6px">☁️ Яндекс Диск — хранилище сканов</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:18px">Сканы документов по каждой поставке сохраняются в Яндекс Диске. Все сотрудники работают с одним корпоративным аккаунтом.</div>
-
-      <div id="yd-status-bar" class="yd-status-bar">
-        <div class="yd-dot off" id="yd-dot"></div>
-        <div style="flex:1">
-          <span id="yd-status-text" style="color:var(--text2)">Не подключено</span>
-          <span id="yd-account-text" style="color:var(--text3);margin-left:8px;font-size:11px"></span>
-        </div>
-        <button class="gen-btn secondary" onclick="ydDisconnect()" id="yd-disconnect-btn" style="display:none;margin:0;padding:5px 12px;font-size:11px">✕ Отключить</button>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
-        <div class="field" style="margin:0">
-          <label>Client ID приложения Яндекс OAuth</label>
-          <input id="yd-client-id" placeholder="Вставьте Client ID из oauth.yandex.ru" style="font-family:'JetBrains Mono',monospace;font-size:12px"
-            oninput="try{localStorage.setItem('ved_yd_client_id',this.value)}catch(e){}">
-        </div>
-        <div class="field" style="margin:0">
-          <label>Папка на Яндекс Диске</label>
-          <input id="yd-folder" value="ВЭД Система" placeholder="ВЭД Система" style="font-family:'JetBrains Mono',monospace;font-size:12px"
-            oninput="try{localStorage.setItem('ved_yd_folder',this.value)}catch(e){}">
-        </div>
-      </div>
-
-      <!-- Шаг 2: вставить токен вручную -->
-      <div id="yd-token-row" style="margin-bottom:14px">
-        <div class="field" style="margin:0 0 8px 0">
-          <label>Токен доступа <span style="color:var(--text3);font-weight:400">(получите по кнопке ниже, затем вставьте сюда)</span></label>
-          <div style="display:flex;gap:8px">
-            <input id="yd-token-input" type="password" placeholder="y0_AgAAAA..." style="font-family:'JetBrains Mono',monospace;font-size:12px;flex:1"
-              oninput="ydTokenInputChanged(this.value)">
-            <button class="gen-btn secondary" onclick="ydToggleTokenVisible()" style="margin:0;padding:8px 12px;font-size:12px" title="Показать/скрыть">👁</button>
-          </div>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button class="gen-btn" onclick="ydConnect()" style="margin:0;padding:9px 20px">🔑 Получить токен</button>
-        <button class="gen-btn secondary" onclick="ydCheckStatus()" style="margin:0;padding:9px 16px">↻ Проверить подключение</button>
-      </div>
-      <div style="margin-top:12px;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text3);line-height:1.8">
-        <b style="color:var(--text2)">Как подключить:</b><br>
-        1. Нажмите <b>«🔑 Получить токен»</b> — откроется окно авторизации Яндекса<br>
-        2. Войдите в корпоративный аккаунт и нажмите <b>«Разрешить»</b><br>
-        3. Яндекс покажет токен на экране — <b>скопируйте его</b><br>
-        4. Вернитесь сюда, вставьте токен в поле выше и нажмите <b>«↻ Проверить подключение»</b>
       </div>
     </div>
 
@@ -8419,6 +8254,7 @@ function showSection(name) {
   });
   if (name === 'admin') renderAdminTable();
   if (name === 'deadlines') renderDeadlines();
+  if (name === 'customs') tplInit();
   if (name === 'suppliers') renderSuppliers();
   if (name === 'currency') fxInit();
   if (name === 'packing') plInit();
@@ -14085,6 +13921,538 @@ function export1CVed() {
 
   XLSX.writeFile(wb, '1С_ВЭД_выгрузка_' + new Date().toISOString().slice(0, 10) + '.xlsx');
   showToast('✅ Выгрузка для 1С сформирована (3 листа)');
+}
+
+// ════════════════════════════════════════════
+// ── TEMPLATE LIBRARY ──
+// ════════════════════════════════════════════
+
+const TPL_TEMPLATES = [
+  /* ─── SUPPLIER (English) ─────────────────────────────────── */
+  {
+    id: 'cert_origin', group: 'supplier',
+    icon: '🌐', title: 'Request for Certificate of Origin',
+    desc: 'Запрос сертификата происхождения товара',
+    body: (v) => `${v.city}, ${v.today}
+
+To: ${v.sellerName}
+Attn: ${v.sellerContact}
+E-mail: ${v.sellerEmail}
+
+Re: Certificate of Origin — Contract No. ${v.contractNum} dated ${v.contractDate}
+    Shipment No.: ${v.shipmentNum}
+
+Dear ${v.sellerContact || 'Sir/Madam'},
+
+We hereby kindly request you to provide the Certificate of Origin for the goods supplied under the above-referenced Contract and Shipment.
+
+Shipment details:
+  Description of Goods : ${v.cargo}
+  Total Value           : ${v.amount} ${v.currency}
+  Country of Origin     : ${v.fromCountry}
+  Port of Loading       : ${v.from}
+  Port of Destination   : ${v.to}
+  Estimated Date of Dep.: ${v.etd}
+
+Please ensure the Certificate of Origin is issued by the authorized Chamber of Commerce and forwarded to us together with the full set of shipping documents.
+
+Should you have any questions, please do not hesitate to contact us.
+
+Thank you for your cooperation.
+
+Best regards,
+
+${v.buyerRep}
+${v.buyerPos}
+${v.buyerName}
+${v.buyerAddr}`,
+  },
+  {
+    id: 'cert_quality', group: 'supplier',
+    icon: '🏆', title: 'Request for Quality Certificate / Test Report',
+    desc: 'Запрос сертификата качества и испытаний',
+    body: (v) => `${v.city}, ${v.today}
+
+To: ${v.sellerName}
+Attn: ${v.sellerContact}
+E-mail: ${v.sellerEmail}
+
+Re: Quality Certificate & Test Report — Contract No. ${v.contractNum}
+    Shipment No.: ${v.shipmentNum}
+
+Dear ${v.sellerContact || 'Sir/Madam'},
+
+In connection with the upcoming customs clearance of goods under the above Contract, we kindly request you to provide the following quality documents:
+
+  1. Quality Certificate / Certificate of Conformity
+  2. Test Report (from accredited laboratory)
+  3. Technical Passport / Product Datasheet
+
+Shipment details:
+  Description : ${v.cargo}
+  Quantity    : [заполнить]
+  Value       : ${v.amount} ${v.currency}
+  Contract No.: ${v.contractNum}
+
+Please include originals in the shipping package and send electronic copies (PDF) to our e-mail address prior to shipment.
+
+Best regards,
+
+${v.buyerRep}
+${v.buyerPos}
+${v.buyerName}`,
+  },
+  {
+    id: 'marking', group: 'supplier',
+    icon: '📦', title: 'Marking & Labelling Instructions',
+    desc: 'Инструкция по маркировке упаковки',
+    body: (v) => `${v.city}, ${v.today}
+
+To: ${v.sellerName}
+Attn: ${v.sellerContact}
+
+Re: Marking and Labelling Instructions — Contract No. ${v.contractNum}
+    Shipment No.: ${v.shipmentNum}
+
+Dear ${v.sellerContact || 'Sir/Madam'},
+
+Please ensure that ALL packages under Shipment No. ${v.shipmentNum} are marked as follows:
+
+┌─────────────────────────────────────────┐
+│  CONSIGNEE:                             │
+│  ${v.buyerName.padEnd(41)}│
+│  ${v.buyerAddr.substring(0,41).padEnd(41)}│
+│                                         │
+│  CONTRACT No.: ${v.contractNum.padEnd(26)}│
+│  SHIPMENT No.: ${v.shipmentNum.padEnd(26)}│
+│  COUNTRY OF ORIGIN: ${(v.fromCountry||'[заполнить]').padEnd(21)}│
+│                                         │
+│  GROSS WEIGHT: _______ kg               │
+│  NET WEIGHT:   _______ kg               │
+│  PACKAGE No.:  _______ of _______       │
+└─────────────────────────────────────────┘
+
+Additional requirements:
+  • All markings must be in English
+  • Fragile items: "FRAGILE — HANDLE WITH CARE"
+  • Electronic goods: "THIS SIDE UP" and "KEEP DRY"
+  • Each package must have a packing list attached outside (in waterproof sleeve)
+
+Please confirm receipt of these instructions by return e-mail.
+
+Best regards,
+
+${v.buyerRep}
+${v.buyerPos}
+${v.buyerName}`,
+  },
+  {
+    id: 'delay', group: 'supplier',
+    icon: '⚠️', title: 'Delay Complaint / Notice of Breach',
+    desc: 'Претензия за задержку поставки',
+    body: (v) => `${v.city}, ${v.today}
+
+To: ${v.sellerName}
+Attn: ${v.sellerContact}
+E-mail: ${v.sellerEmail}
+
+NOTICE OF DELAY — Contract No. ${v.contractNum} dated ${v.contractDate}
+Shipment No.: ${v.shipmentNum} | Goods: ${v.cargo}
+
+Dear ${v.sellerContact || 'Sir/Madam'},
+
+We refer to Contract No. ${v.contractNum} dated ${v.contractDate} and write to formally notify you of a significant delay in the delivery of goods under the above Shipment.
+
+As per the agreed delivery schedule, the goods were expected to be shipped by ${v.etd}. As of today, ${v.today}, we have not received confirmation of shipment / the goods have not arrived at the port of destination.
+
+This delay is causing material disruption to our operations and we hereby request your immediate response addressing the following:
+
+  1. Current status of production / readiness for shipment
+  2. Revised estimated date of departure (ETD)
+  3. Detailed explanation of reasons for the delay
+  4. Your proposed measures to prevent further delays
+
+Please be advised that in accordance with Clause [X] of Contract No. ${v.contractNum}, in the event that the delay exceeds 30 (thirty) calendar days from the agreed shipment date, we reserve the right to:
+  (a) claim a penalty of [X]% of the delayed shipment value per week of delay, and/or
+  (b) cancel the respective Specification and demand a full refund of any advance payment made.
+
+We expect your written response within 3 (three) business days from the date of this letter.
+
+Best regards,
+
+${v.buyerRep}
+${v.buyerPos}
+${v.buyerName}
+${v.buyerAddr}`,
+  },
+  {
+    id: 'shipping_instr', group: 'supplier',
+    icon: '🚢', title: 'Shipping Instructions',
+    desc: 'Инструкция по отгрузке товара',
+    body: (v) => `${v.city}, ${v.today}
+
+To: ${v.sellerName}
+Attn: ${v.sellerContact}
+E-mail: ${v.sellerEmail}
+
+Re: Shipping Instructions — Contract No. ${v.contractNum}
+    Shipment No.: ${v.shipmentNum} | Goods: ${v.cargo}
+
+Dear ${v.sellerContact || 'Sir/Madam'},
+
+Please find below our shipping instructions for the goods to be dispatched under the above Contract:
+
+CONSIGNEE:
+  ${v.buyerName}
+  ${v.buyerAddr}
+
+NOTIFY PARTY:
+  ${v.buyerName}
+  Contact: ${v.buyerRep}
+
+SHIPPING DETAILS:
+  Port of Loading   : ${v.from}
+  Port of Discharge : ${v.to}
+  Incoterms         : ${v.incoterms}
+  Mode of Transport : ${v.modeLabel}
+  Required ETD      : ${v.etd}
+  Contract Value    : ${v.amount} ${v.currency}
+
+REQUIRED DOCUMENTS (please provide full originals set):
+  ☐ Commercial Invoice                    — 3 originals
+  ☐ Packing List                          — 3 originals
+  ☐ ${v.transportDocName.padEnd(38)}— full set of originals
+  ☐ Certificate of Origin                 — 1 original
+  ☐ Quality Certificate / Test Report     — 1 original
+  ☐ Technical Passport / Datasheet        — 1 original
+
+Please send scanned copies of all documents to our e-mail immediately upon shipment.
+Original documents to be sent by courier to the address above.
+
+Please confirm receipt of these instructions.
+
+Best regards,
+
+${v.buyerRep}
+${v.buyerPos}
+${v.buyerName}`,
+  },
+  {
+    id: 'tech_docs', group: 'supplier',
+    icon: '📐', title: 'Request for Technical Documentation',
+    desc: 'Запрос техдокументации для ТР ТС / таможни',
+    body: (v) => `${v.city}, ${v.today}
+
+To: ${v.sellerName}
+Attn: ${v.sellerContact}
+E-mail: ${v.sellerEmail}
+
+Re: Technical Documentation Request — Contract No. ${v.contractNum}
+    Goods: ${v.cargo}
+
+Dear ${v.sellerContact || 'Sir/Madam'},
+
+In connection with the import customs clearance and mandatory technical certification of the goods under the above Contract in the Russian Federation (Eurasian Economic Union), we kindly request you to provide the following technical documentation:
+
+  1. Product Datasheet / Full Technical Specifications
+  2. Declaration of Conformity or Certificate of Conformity (EU/international, if available)
+  3. Material Safety Data Sheet (MSDS / SDS) — if applicable
+  4. Test Reports from accredited laboratory
+  5. User Manual / Operation Instructions (in English is sufficient)
+
+This documentation is required for:
+  • Customs clearance under the EAEU Customs Code
+  • Obtaining TR CU (Technical Regulation of the Customs Union) certification
+  • Classification confirmation under the EAEU HS Code
+
+Please send all documents in PDF format to our e-mail address at your earliest convenience, and no later than ${v.etd ? v.etd + ' (ETD)' : '[дата отгрузки]'}.
+
+Thank you for your prompt assistance.
+
+Best regards,
+
+${v.buyerRep}
+${v.buyerPos}
+${v.buyerName}`,
+  },
+
+  /* ─── CUSTOMS BROKER (Russian) ───────────────────────────── */
+  {
+    id: 'broker_instr', group: 'broker',
+    icon: '🛃', title: 'Инструкция таможенному брокеру',
+    desc: 'Поручение на таможенное оформление поставки',
+    body: (v) => `${v.city}, ${v.today}
+
+${v.brokerName || '[Название брокера]'}
+Ответственному специалисту
+
+ИНСТРУКЦИЯ НА ТАМОЖЕННОЕ ОФОРМЛЕНИЕ
+
+Поставка    : № ${v.shipmentNum}
+Контракт    : № ${v.contractNum} от ${v.contractDate}
+Поставщик   : ${v.sellerName}
+Груз        : ${v.cargo}
+
+ПАРАМЕТРЫ ОФОРМЛЕНИЯ:
+  Таможенная процедура : ИМ 40 (выпуск для внутреннего потребления)
+  Инкотермс            : ${v.incoterms}
+  Таможенная стоимость : ${v.amount} ${v.currency}
+  Страна происхождения : ${v.fromCountry || '[заполнить]'}
+  Порт/пункт прибытия  : ${v.to}
+  Ожидаемая дата ETA   : ${v.eta}
+
+ДОКУМЕНТЫ В РАБОТЕ:
+  ☐ Инвойс № ___ от ___
+  ☐ Упаковочный лист
+  ☐ ${v.transportDocName}
+  ☐ Сертификат происхождения
+  ☐ Качественный сертификат / Техпаспорт
+  ☐ Прочие: ___________
+
+ТН ВЭД (предварительно) : ${v.hsCode || '[уточнить]'}
+
+Особые указания:
+  [заполнить при необходимости]
+
+По всем вопросам обращаться:
+  ${v.buyerRep}, тел.: _______________, e-mail: _______________
+
+С уважением,
+
+${v.buyerRep}
+${v.buyerPos}
+${v.buyerName}`,
+  },
+  {
+    id: 'broker_calc', group: 'broker',
+    icon: '🧮', title: 'Запрос расчёта таможенных платежей',
+    desc: 'Предварительный расчёт пошлин и НДС',
+    body: (v) => `${v.city}, ${v.today}
+
+${v.brokerName || '[Название брокера]'}
+Ответственному специалисту
+
+ЗАПРОС ПРЕДВАРИТЕЛЬНОГО РАСЧЁТА ТАМОЖЕННЫХ ПЛАТЕЖЕЙ
+
+Просим произвести предварительный расчёт таможенных платежей для следующей поставки:
+
+  Поставка           : № ${v.shipmentNum}
+  Контракт           : № ${v.contractNum} от ${v.contractDate}
+  Поставщик          : ${v.sellerName}, ${v.fromCountry || '[страна]'}
+  Описание товара    : ${v.cargo}
+  ТН ВЭД (предв.)    : ${v.hsCode || '[уточнить]'}
+  Инвойсная стоимость: ${v.amount} ${v.currency}
+  Условия поставки   : ${v.incoterms}
+  Фрахт              : _______ ${v.currency}
+  Страховка          : _______ ${v.currency}
+  Порт прибытия      : ${v.to}
+  Ожидаемая ETA      : ${v.eta}
+
+Просим рассчитать:
+  • Таможенную пошлину (% и сумму в руб.)
+  • НДС при ввозе (22%)
+  • Таможенные сборы за оформление
+  • Итоговую сумму таможенных платежей в рублях (по курсу ЦБ на дату расчёта)
+
+Расчёт необходим до: [заполнить]
+Ответ направить на e-mail: _______________
+
+С уважением,
+
+${v.buyerRep}
+${v.buyerPos}
+${v.buyerName}`,
+  },
+];
+
+/* ── Вспомогательные данные ──────────────────────────────── */
+const TPL_MODE_LABELS = { sea:'Sea (Ocean Freight)', air:'Air (Air Freight)', rail:'Rail (Railway)', road:'Road (Truck)', multi:'Multimodal' };
+const TPL_TRANSPORT_DOC = { sea:'Bill of Lading (B/L)', air:'Air Waybill (AWB)', rail:'Railway Waybill (SMGS/CIM)', road:'CMR Waybill', multi:'Bill of Lading / AWB / CMR' };
+
+/* ── Инициализация ───────────────────────────────────────── */
+function tplInit() {
+  ['supplier','broker'].forEach(group => {
+    const el = document.getElementById(`tpl-list-${group}`);
+    if (!el) return;
+    el.innerHTML = TPL_TEMPLATES.filter(t => t.group === group).map(t => `
+      <div class="tpl-card" id="tpl-card-${t.id}" onclick="tplSelect('${t.id}')">
+        <span style="font-size:18px">${t.icon}</span>
+        <div>
+          <div style="font-weight:600;font-size:12px;color:var(--text)">${t.title}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${t.desc}</div>
+        </div>
+      </div>`).join('');
+  });
+}
+
+let _tplActive = null;
+
+function tplSelect(id) {
+  _tplActive = id;
+  document.querySelectorAll('.tpl-card').forEach(c => c.classList.remove('active'));
+  const card = document.getElementById('tpl-card-' + id);
+  if (card) card.classList.add('active');
+
+  const tpl = TPL_TEMPLATES.find(t => t.id === id);
+  if (!tpl) return;
+
+  // Populate shipment dropdown
+  const shipments = DB_shipments.all();
+  const shpOptions = [{ value:'', label:'— выберите поставку —' },
+    ...shipments.map(s => ({ value: s.id, label: `${s.shipment_number || s.id} · ${shpSupName(s.supplier_id)} · ${s.cargo || s.contract_id || ''}` }))
+  ];
+
+  const right = document.getElementById('tpl-right');
+  right.innerHTML = `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px">${tpl.icon} ${tpl.title}</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:18px">${tpl.desc}</div>
+
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="field">
+          <label>Поставка (автозаполнение)</label>
+          <select id="tpl-sel-shipment" onchange="tplFill()">
+            ${shpOptions.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Дата письма</label>
+          <input id="tpl-sel-date" type="date" value="${new Date().toISOString().slice(0,10)}" oninput="tplFill()">
+        </div>
+        ${tpl.group === 'broker' ? `
+        <div class="field span2">
+          <label>Название брокера (необязательно)</label>
+          <input id="tpl-broker-name" placeholder="ООО «Таможенный брокер»" oninput="tplFill()">
+        </div>` : ''}
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="gen-btn" onclick="tplFill()" style="margin:0;padding:7px 16px;font-size:12px">⚡ Сформировать</button>
+        <button class="gen-btn secondary" onclick="tplCopy()" style="margin:0;padding:7px 16px;font-size:12px">📋 Копировать</button>
+        <button class="gen-btn secondary" onclick="tplPrint()" style="margin:0;padding:7px 16px;font-size:12px">🖨 Печать</button>
+        <button class="gen-btn secondary" onclick="tplExportWord()" style="margin:0;padding:7px 14px;font-size:12px">⬇ Word</button>
+      </div>
+
+      <textarea id="tpl-preview" spellcheck="false"
+        style="width:100%;min-height:520px;font-family:'Courier New',monospace;font-size:12px;
+               line-height:1.7;border:1px solid var(--border);border-radius:var(--radius);
+               padding:16px;background:var(--surface);color:var(--text);resize:vertical;
+               white-space:pre;overflow-x:auto"
+        placeholder="Нажмите «⚡ Сформировать» или выберите поставку выше"></textarea>
+    </div>`;
+}
+
+function tplBuildVars(shipmentId, dateStr, brokerName) {
+  const s = shipmentId ? DB_shipments.find(shipmentId) : null;
+  const today = dateStr
+    ? new Date(dateStr + 'T00:00:00').toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' })
+    : new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+
+  // Supplier from Контрагенты
+  let sellerName = '—', sellerContact = '—', sellerEmail = '—', sellerAddr = '';
+  if (s?.supplier_id) {
+    try {
+      const sups = JSON.parse(localStorage.getItem('ved_suppliers') || '[]');
+      const sup = sups.find(x => String(x.id) === String(s.supplier_id));
+      if (sup) {
+        sellerName    = sup.name    || sup.sellerName || '—';
+        sellerContact = sup.contact || '—';
+        sellerEmail   = sup.email   || '—';
+        sellerAddr    = sup.addr    || '';
+      }
+    } catch(e) {}
+  }
+
+  // Contract data
+  let contractNum = '—', contractDate = '—';
+  if (s?.contract_id) {
+    const ct = DB_contracts.all().find(c => c.num === s.contract_id);
+    if (ct) { contractNum = ct.num || '—'; contractDate = ct.date ? ct.date.split('-').reverse().join('.') : '—'; }
+    else contractNum = s.contract_id;
+  }
+
+  // Buyer (company defaults)
+  const buyerName    = 'ООО «Ендейвер» / Endeavour LLC';
+  const buyerAddr    = '117335, г. Москва, ул. Вавилова, д.79, корп.1, офис 6-3 / 79/1 Vavilova Street, Moscow';
+  const buyerRep     = 'Кирилюк Сергей Георгиевич / Sergey G. Kiriluk';
+  const buyerPos     = 'Генеральный директор / General Director';
+  const city         = 'Moscow';
+
+  return {
+    today, city,
+    shipmentNum:     s?.shipment_number   || '—',
+    cargo:           s?.cargo             || s?.notes || '[заполнить]',
+    amount:          s?.total_value       ? fmtNum(s.total_value) : '[заполнить]',
+    currency:        s?.currency          || 'USD',
+    incoterms:       s?.incoterms         || '[заполнить]',
+    from:            s?.from              || '[заполнить]',
+    to:              s?.to                || '[заполнить]',
+    fromCountry:     s?.from_country      || '[заполнить]',
+    etd:             s?.dates?.etd        || '[заполнить]',
+    eta:             s?.dates?.eta        || '[заполнить]',
+    modeLabel:       TPL_MODE_LABELS[s?.mode] || '[заполнить]',
+    transportDocName:TPL_TRANSPORT_DOC[s?.mode] || 'Bill of Lading (B/L)',
+    hsCode:          s?.hs_code           || '',
+    contractNum, contractDate,
+    sellerName, sellerContact, sellerEmail, sellerAddr,
+    buyerName, buyerAddr, buyerRep, buyerPos,
+    brokerName:      brokerName || '',
+  };
+}
+
+function tplFill() {
+  const tpl = TPL_TEMPLATES.find(t => t.id === _tplActive);
+  if (!tpl) return;
+  const shipId    = document.getElementById('tpl-sel-shipment')?.value || '';
+  const dateStr   = document.getElementById('tpl-sel-date')?.value || '';
+  const brokerName= document.getElementById('tpl-broker-name')?.value || '';
+  const vars = tplBuildVars(shipId, dateStr, brokerName);
+  const text = tpl.body(vars);
+  const ta = document.getElementById('tpl-preview');
+  if (ta) ta.value = text;
+}
+
+function tplCopy() {
+  const ta = document.getElementById('tpl-preview');
+  if (!ta || !ta.value.trim()) { showToast('⚠️ Сначала сформируйте письмо'); return; }
+  navigator.clipboard.writeText(ta.value)
+    .then(() => showToast('✅ Текст письма скопирован в буфер обмена'))
+    .catch(() => { ta.select(); document.execCommand('copy'); showToast('✅ Скопировано'); });
+}
+
+function tplPrint() {
+  const ta = document.getElementById('tpl-preview');
+  if (!ta || !ta.value.trim()) { showToast('⚠️ Сначала сформируйте письмо'); return; }
+  const tpl = TPL_TEMPLATES.find(t => t.id === _tplActive);
+  const w = window.open('', '_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${tpl?.title||'Письмо'}</title>
+    <style>body{font-family:'Courier New',monospace;font-size:12pt;line-height:1.7;padding:20mm 25mm;white-space:pre-wrap;color:#000}
+    @media print{body{padding:15mm 20mm}}
+    .no-print{background:#1F7A63;color:#fff;padding:10px 16px;text-align:center;margin-bottom:20px}
+    .no-print button{background:#fff;color:#1F7A63;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;margin-right:8px}
+    @media print{.no-print{display:none}}</style></head><body>
+    <div class="no-print"><button onclick="window.print()">🖨 Распечатать</button><button onclick="window.close()">✕ Закрыть</button></div>
+    <pre>${ta.value.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre></body></html>`);
+  w.document.close();
+}
+
+function tplExportWord() {
+  const ta = document.getElementById('tpl-preview');
+  if (!ta || !ta.value.trim()) { showToast('⚠️ Сначала сформируйте письмо'); return; }
+  const tpl = TPL_TEMPLATES.find(t => t.id === _tplActive);
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+    xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+    <head><meta charset="UTF-8"><title>${tpl?.title||'Письмо'}</title>
+    <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+    <style>body{font-family:Courier New,monospace;font-size:11pt;line-height:1.7;margin:2cm 3cm}
+    pre{white-space:pre-wrap;font-family:inherit;font-size:inherit}</style></head>
+    <body><pre>${ta.value.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre></body></html>`;
+  const blob = new Blob([html], { type: 'application/msword' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (tpl?.title || 'letter').replace(/[/\\:*?"<>|]/g,'-') + '_' + new Date().toISOString().slice(0,10) + '.doc';
+  a.click();
+  showToast('✅ Файл Word сохранён');
 }
 
 // ════════════════════════════════════════════
