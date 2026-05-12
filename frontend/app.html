@@ -4466,6 +4466,7 @@
     </div>
     <div id="user-badge"></div>
     <button id="logout-btn" onclick="doLogout()">Выход</button>
+    <span id="hdr-api-indicator" style="font-size:14px;cursor:pointer;opacity:0.7;margin-right:2px" onclick="showApiKeyModal()" title="API ключ Claude">🔑</span>
     <button class="hdr-api-btn" onclick="showApiKeyModal()" title="Настройка API ключа Claude">⚙</button>
   </div>
 </header>
@@ -10749,6 +10750,9 @@ function loginSuccess(user) {
   loadActiveCompany();
   setActiveCompany(activeCompany);
 
+  // Show API key status indicator in header
+  _apiKeyUpdateHeaderIndicator();
+
   // Load dashboard data
   setTimeout(() => dashLoad(), 100);
 }
@@ -15593,8 +15597,51 @@ function invApplySpecRows() {
 /* ═══════════════════════════════════════════════
    API KEY MANAGEMENT
 ═══════════════════════════════════════════════ */
+/* ── API key: read from localStorage, fallback to cookie ── */
+function _apiKeyCookieName() { return 'ved_ak'; }
+
+function _apiKeyReadCookie() {
+  try {
+    const m = document.cookie.match('(?:^|; )' + _apiKeyCookieName() + '=([^;]*)');
+    return m ? decodeURIComponent(m[1]) : '';
+  } catch(e) { return ''; }
+}
+
+function _apiKeyWriteCookie(val) {
+  try {
+    const exp = new Date(); exp.setFullYear(exp.getFullYear() + 1);
+    document.cookie = _apiKeyCookieName() + '=' + encodeURIComponent(val)
+      + '; expires=' + exp.toUTCString() + '; path=/; SameSite=Lax';
+  } catch(e) {}
+}
+
+function _apiKeyDeleteCookie() {
+  try {
+    document.cookie = _apiKeyCookieName() + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax';
+  } catch(e) {}
+}
+
 function getApiKey() {
-  return localStorage.getItem('ved_anthropic_key') || '';
+  // Primary: localStorage. Fallback: cookie (survives browser cache clears)
+  const ls = localStorage.getItem('ved_anthropic_key') || '';
+  if (ls) return ls;
+  const ck = _apiKeyReadCookie();
+  if (ck) {
+    // Restore to localStorage from cookie
+    try { localStorage.setItem('ved_anthropic_key', ck); } catch(e) {}
+  }
+  return ck;
+}
+
+function _apiKeyUpdateHeaderIndicator() {
+  const el = document.getElementById('hdr-api-indicator');
+  if (!el) return;
+  const has = !!getApiKey();
+  el.title    = has ? 'API ключ Claude: задан ✓' : 'API ключ Claude: не задан — нажмите ⚙';
+  el.style.color      = has ? 'var(--green)' : 'var(--red)';
+  el.textContent = has ? '🔑' : '🔑';
+  el.style.opacity = has ? '0.7' : '1';
+  el.style.filter  = has ? 'none' : 'drop-shadow(0 0 3px rgba(214,69,69,0.6))';
 }
 
 function showApiKeyModal() {
@@ -15605,8 +15652,9 @@ function showApiKeyModal() {
   modal.style.display = 'flex';
   const st = document.getElementById('apikey-status');
   if (st) st.innerHTML = saved
-    ? '<span style="color:var(--green)">✓ Ключ сохранён</span>'
+    ? '<span style="color:var(--green)">✓ Ключ сохранён (localStorage + cookie)</span>'
     : '<span style="color:var(--text3)">Ключ не задан</span>';
+  _apiKeyUpdateHeaderIndicator();
 }
 
 function saveApiKey() {
@@ -15616,15 +15664,20 @@ function saveApiKey() {
     document.getElementById('apikey-status').innerHTML = '<span style="color:var(--red)">Введите новый ключ</span>';
     return;
   }
-  localStorage.setItem('ved_anthropic_key', val);
-  document.getElementById('apikey-status').innerHTML = '<span style="color:var(--green)">✓ Ключ сохранён</span>';
+  // Save to BOTH localStorage AND cookie (1 year)
+  try { localStorage.setItem('ved_anthropic_key', val); } catch(e) {}
+  _apiKeyWriteCookie(val);
+  document.getElementById('apikey-status').innerHTML = '<span style="color:var(--green)">✓ Ключ сохранён (localStorage + cookie)</span>';
   inp.value = val.slice(0,8) + '••••••••••••••••••••';
+  _apiKeyUpdateHeaderIndicator();
 }
 
 function clearApiKey() {
   localStorage.removeItem('ved_anthropic_key');
+  _apiKeyDeleteCookie();
   document.getElementById('apikey-input').value = '';
   document.getElementById('apikey-status').innerHTML = '<span style="color:var(--text3)">Ключ удалён</span>';
+  _apiKeyUpdateHeaderIndicator();
 }
 
 async function testApiKey() {
