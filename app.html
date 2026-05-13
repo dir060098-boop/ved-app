@@ -4774,6 +4774,7 @@
            ═══════════════════════════════════════════════════════ -->
       <div id="ct-form-view" style="display:none">
         <input type="hidden" id="ct-editing-id">
+        <input type="hidden" id="ct-editing-company">
 
         <!-- Навигация назад -->
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
@@ -8815,6 +8816,8 @@ function ctShowForm(id) {
     ctClearForm();
     if (title) title.textContent = 'Новый договор';
     if (editId) editId.value = '';
+    const ecEl = document.getElementById('ct-editing-company');
+    if (ecEl) ecEl.value = '';
   }
   renderCompanyTabsInto('contract-company-tabs');
 }
@@ -8833,6 +8836,9 @@ function ctClearForm() {
 
 function ctFillForm(c) {
   const fld = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  // Сохраняем company оригинального договора — используется при сохранении
+  const ecEl = document.getElementById('ct-editing-company');
+  if (ecEl) ecEl.value = c.company || 'ENDV';
   fld('c-num', c.num); fld('c-date', c.date);
   fld('c-seller-name', c.sellerName); fld('c-seller-addr', c.sellerAddr);
   fld('c-seller-rep',  c.sellerRep);  fld('c-seller-pos', c.sellerPos);
@@ -8882,7 +8888,8 @@ function ctGetFormData() {
     repatDate: v('c-repat-date'),
     bankNotifyDate: v('c-bank-notify-date'),
     vcNote: v('c-vc-note'),
-    company: activeCompany,
+    // При редактировании — сохраняем company оригинала; при новом — берём activeCompany
+    company: v('ct-editing-company') || activeCompany,
     status: 'active',
     updatedAt: new Date().toISOString().slice(0, 10)
   };
@@ -8894,13 +8901,28 @@ function ctSaveOnly() {
   const data = ctGetFormData();
   if (!data.num)        { alert('Введите номер договора'); return; }
   if (!data.sellerName) { alert('Введите наименование поставщика'); return; }
+  let ok = false;
   if (editingId) {
-    DB_contracts.update(editingId, { ...data, id: editingId });
+    const res = DB_contracts.update(editingId, { ...data, id: editingId });
+    ok = !!res;
+    if (!ok) {
+      // Запись не найдена по ID — добавляем заново
+      DB_contracts.insert({ ...data, id: editingId, createdAt: data.updatedAt });
+      ok = true;
+    }
   } else {
-    DB_contracts.insert({ ...data, id: Date.now().toString(), createdAt: data.updatedAt });
+    const newId = Date.now().toString();
+    DB_contracts.insert({ ...data, id: newId, createdAt: data.updatedAt });
+    if (eid) eid.value = newId;
+    const ecEl = document.getElementById('ct-editing-company');
+    if (ecEl) ecEl.value = data.company;
+    ok = true;
   }
   syncRepatToDeadlines();
+  // Переключаемся на компанию договора перед отображением реестра
+  if (data.company && data.company !== activeCompany) setActiveCompany(data.company);
   ctShowList();
+  if (typeof showToast === 'function') showToast(ok ? '✅ Договор сохранён в реестре' : '⚠️ Ошибка сохранения');
 }
 
 function ctSaveAndGenerate() {
@@ -15482,8 +15504,15 @@ function contractSaveToStorage() {
     const idx = saved.findIndex(x => x.num === d.num);
     // Assign delivery num if not already set for this contract
     let delivNum = '';
+    // Приоритет: 1) уже есть в ved_contracts → сохраняем как есть
+    //            2) уже заполнено в форме (загружено из DB_contracts) → берём его
+    //            3) генерируем новый номер
+    const formDelivNum = (document.getElementById('c-delivery-num')?.value || '').trim();
+    const validFormNum = formDelivNum && !formDelivNum.includes('предпросмотр');
     if (idx >= 0 && saved[idx].deliveryNum) {
       delivNum = saved[idx].deliveryNum; // keep existing
+    } else if (validFormNum) {
+      delivNum = formDelivNum; // уже назначен — из DB_contracts при загрузке
     } else {
       delivNum = generateDeliveryNum(d.company || d.buyerPrefix || activeCompany, new Date(d.date || Date.now()).getFullYear());
     }
