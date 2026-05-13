@@ -5399,6 +5399,27 @@
       </div>
       <input type="hidden" id="pl-shipment-id" value="">
 
+      <!-- PDF Import box -->
+      <div id="pl-import-box" style="margin-bottom:20px;border:1.5px dashed var(--teal);border-radius:10px;padding:18px 22px;background:rgba(43,122,111,0.03);transition:all 0.2s"
+           ondragover="event.preventDefault();this.style.background='rgba(43,122,111,0.08)'"
+           ondragleave="this.style.background='rgba(43,122,111,0.03)'"
+           ondrop="plHandleDrop(event)">
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <div style="font-size:26px">📦</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:3px">Импорт упаковочного листа от поставщика (PDF)</div>
+            <div style="font-size:11px;color:var(--text3)">Перетащите PDF сюда или нажмите «Выбрать файл» — Claude распознает данные и заполнит форму автоматически</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <label class="gen-btn" style="margin-top:0;padding:9px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+              📂 Выбрать PDF
+              <input type="file" accept=".pdf,application/pdf" style="display:none" onchange="plImportPdf(this.files[0]);this.value=''">
+            </label>
+          </div>
+        </div>
+      </div>
+      <div id="pl-import-status" style="display:none;margin-top:-10px;margin-bottom:14px;padding:11px 16px;border-radius:6px;font-size:12px"></div>
+      <div id="pl-import-preview" style="display:none;margin-bottom:20px"></div>
 
       <!-- Import from invoice banner -->
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
@@ -15263,6 +15284,300 @@ function invApplyExtracted(dataStr) {
   document.getElementById('i-num')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+// ════════════════════════════════════════════
+// ── PACKING LIST PDF IMPORT (Claude AI) ──
+// ════════════════════════════════════════════
+
+function plHandleDrop(event) {
+  event.preventDefault();
+  document.getElementById('pl-import-box').style.background = 'rgba(43,122,111,0.03)';
+  const file = event.dataTransfer?.files?.[0];
+  if (!file) return;
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    plShowStatus('error', '⚠ Пожалуйста, загрузите файл в формате PDF');
+    return;
+  }
+  plImportPdf(file);
+}
+
+async function plImportPdf(file) {
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) {
+    plShowStatus('error', '⚠ Файл слишком большой (максимум 20 МБ)');
+    return;
+  }
+
+  plShowStatus('loading', '<span class="inv-spinner"></span>Загрузка PDF и анализ данных через Claude AI...');
+  document.getElementById('pl-import-preview').style.display = 'none';
+
+  try {
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = () => reject(new Error('Ошибка чтения файла'));
+      reader.readAsDataURL(file);
+    });
+
+    plShowStatus('loading', '<span class="inv-spinner"></span>Claude анализирует упаковочный лист... обычно 10–20 секунд');
+
+    const systemPrompt = `Ты — эксперт по анализу упаковочных листов (Packing List) для внешнеторговых операций.
+Проанализируй PDF и извлеки все данные в строгом JSON формате.
+Верни ТОЛЬКО валидный JSON без пояснений, markdown-блоков или другого текста.
+
+Формат ответа:
+{
+  "plNumber": "номер упаковочного листа",
+  "plDate": "YYYY-MM-DD или пустая строка",
+  "invoiceRef": "номер инвойса на который ссылается PL",
+  "shipper": "полное название и адрес отправителя/продавца одной строкой",
+  "consignee": "полное название и адрес грузополучателя/покупателя одной строкой",
+  "countryOfOrigin": "страна происхождения",
+  "countryOfDestination": "страна назначения",
+  "portOfLoading": "порт/пункт погрузки",
+  "portOfDischarge": "порт/пункт назначения",
+  "incoterms": "условия поставки (FOB, CIF, EXW и т.д.)",
+  "hsCode": "код ТН ВЭД / HS code",
+  "shippingMode": "способ доставки (Sea, Air, Road, Rail)",
+  "forwarder": "название экспедитора если есть",
+  "totalPackages": числовое_значение_мест,
+  "packageType": "тип упаковки (Cartons, Pallets, Drums, Rolls и т.д.)",
+  "totalNetWeight": числовое_значение_нетто_кг,
+  "totalGrossWeight": числовое_значение_брутто_кг,
+  "totalVolume": числовое_значение_объём_м3,
+  "dimensions": "габариты ящиков например 120x80x90",
+  "shippingMarks": "маркировка грузовых мест как в документе",
+  "specialInstructions": "особые инструкции или примечания",
+  "signedBy": "имя и должность подписанта",
+  "signPlace": "место подписания",
+  "signDate": "YYYY-MM-DD дата подписания или пустая строка",
+  "items": [
+    {
+      "description": "полное описание товара",
+      "quantity": числовое_значение,
+      "unit": "единица измерения (Mtrs, Pcs, Kgs, Sets, Rolls, Cartons и т.д.)",
+      "netWeight": числовое_значение_нетто_кг,
+      "grossWeight": числовое_значение_брутто_кг,
+      "volume": числовое_значение_объём_м3,
+      "packages": числовое_значение_мест
+    }
+  ],
+  "confidence": "high/medium/low"
+}
+
+Если поле не найдено — пустая строка или 0 для числовых. Даты → YYYY-MM-DD. Веса/объёмы — только числа.`;
+
+    const response = await claudeFetch({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2000,
+      system: systemPrompt,
+      messages: [{
+        role: 'user',
+        content: [{
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: base64 }
+        }, {
+          type: 'text',
+          text: 'Извлеки все данные из этого упаковочного листа и верни строго в формате JSON.'
+        }]
+      }]
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(`API ошибка ${response.status}: ${errData.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const rawText = data.content?.map(b => b.text || '').join('').trim();
+
+    let extracted;
+    try {
+      const clean = rawText.replace(/^```[a-z]*\n?/,'').replace(/\n?```$/,'').trim();
+      extracted = JSON.parse(clean);
+    } catch(e) {
+      throw new Error('Не удалось разобрать ответ Claude. Попробуйте другой PDF.');
+    }
+
+    plShowStatus('success', `✅ Данные успешно извлечены из «${file.name}»${extracted.confidence === 'low' ? ' · <span style="color:var(--gold)">⚠ низкая уверенность — проверьте данные</span>' : ''}`);
+    plShowPreview(extracted, file.name);
+
+  } catch(e) {
+    console.error('PL import error:', e);
+    plShowStatus('error', `⚠ Ошибка: ${e.message}`);
+  }
+}
+
+function plShowStatus(type, html) {
+  const el = document.getElementById('pl-import-status');
+  const colors = {
+    loading: { bg: 'rgba(43,122,111,0.08)', border: 'rgba(43,122,111,0.2)', color: 'var(--teal)' },
+    success: { bg: 'rgba(31,122,99,0.08)',  border: 'rgba(31,122,99,0.2)',  color: 'var(--green)' },
+    error:   { bg: 'rgba(192,57,43,0.08)',  border: 'rgba(192,57,43,0.2)',  color: 'var(--red)'   },
+  };
+  const c = colors[type] || colors.loading;
+  el.style.cssText = `display:block;margin-top:-10px;margin-bottom:14px;padding:11px 16px;border-radius:6px;font-size:12px;background:${c.bg};border:1px solid ${c.border};color:${c.color}`;
+  el.innerHTML = html;
+}
+
+function plShowPreview(data, filename) {
+  const previewEl = document.getElementById('pl-import-preview');
+  previewEl.style.display = '';
+
+  const fmtN = n => n ? parseFloat(n).toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:3}) : '—';
+  const fmtVal = v => v || '<span style="color:var(--text3);font-style:italic">не найдено</span>';
+
+  const fields = [
+    ['№ Упаковочного листа', data.plNumber],
+    ['Дата',                 data.plDate],
+    ['Инвойс №',             data.invoiceRef],
+    ['Отправитель',          data.shipper],
+    ['Получатель',           data.consignee],
+    ['Порт погрузки',        data.portOfLoading],
+    ['Порт назначения',      data.portOfDischarge],
+    ['Страна происхождения', data.countryOfOrigin],
+    ['Страна назначения',    data.countryOfDestination],
+    ['Инкотермс',            data.incoterms],
+    ['HS Code',              data.hsCode],
+    ['Способ доставки',      data.shippingMode],
+    ['Мест всего',           data.totalPackages ? String(data.totalPackages) : ''],
+    ['Тип упаковки',         data.packageType],
+    ['Нетто, кг',            data.totalNetWeight ? fmtN(data.totalNetWeight) : ''],
+    ['Брутто, кг',           data.totalGrossWeight ? fmtN(data.totalGrossWeight) : ''],
+    ['Объём, м³',            data.totalVolume ? fmtN(data.totalVolume) : ''],
+  ].filter(([,v]) => v);
+
+  const itemsHtml = data.items?.length ? `
+    <div style="margin-top:14px">
+      <div style="font-size:10px;font-family:'Fira Code',monospace;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:8px">Товарные позиции (${data.items.length})</div>
+      <table class="inv-extracted-table">
+        <thead><tr><th>#</th><th>Описание</th><th style="text-align:right">Кол-во</th><th>Ед.</th><th style="text-align:right">Нетто</th><th style="text-align:right">Брутто</th><th style="text-align:right">Мест</th></tr></thead>
+        <tbody>
+          ${data.items.map((it,i) => `<tr>
+            <td style="color:var(--text3);font-family:'Fira Code',monospace">${i+1}</td>
+            <td>${it.description||'—'}</td>
+            <td style="text-align:right;font-family:'Fira Code',monospace">${it.quantity||0}</td>
+            <td style="color:var(--text3)">${it.unit||''}</td>
+            <td style="text-align:right;font-family:'Fira Code',monospace">${fmtN(it.netWeight)}</td>
+            <td style="text-align:right;font-family:'Fira Code',monospace">${fmtN(it.grossWeight)}</td>
+            <td style="text-align:right;font-family:'Fira Code',monospace">${it.packages||'—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+
+  // Serialize data for onclick (escape quotes)
+  const dataJson = JSON.stringify(data).replace(/"/g,'&quot;');
+
+  previewEl.innerHTML = `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px 18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--navy)">Извлечённые данные · ${filename}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">Проверьте данные перед применением</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="gen-btn" onclick="plApplyExtracted(&quot;${dataJson}&quot;)" style="margin-top:0;padding:9px 18px;background:var(--teal);color:white;border-color:var(--teal)">
+            ✓ Применить в форму
+          </button>
+          <button class="gen-btn secondary" onclick="document.getElementById('pl-import-preview').style.display='none'" style="margin-top:0;padding:9px 18px">
+            Отмена
+          </button>
+        </div>
+      </div>
+      <div style="columns:2;column-gap:24px">
+        ${fields.map(([key,val]) => `
+          <div class="inv-import-field" style="break-inside:avoid">
+            <div class="inv-import-key">${key}</div>
+            <div class="inv-import-val">${fmtVal(val)}</div>
+          </div>`).join('')}
+      </div>
+      ${itemsHtml}
+      ${data.shippingMarks ? `<div style="margin-top:12px;padding:10px 12px;background:rgba(43,122,111,0.06);border:1px solid rgba(43,122,111,0.15);border-radius:6px;font-size:11px;font-family:'Fira Code',monospace;white-space:pre-wrap;color:var(--text2)"><b>Маркировка:</b>\n${data.shippingMarks}</div>` : ''}
+      ${data.specialInstructions ? `<div style="margin-top:8px;padding:10px 12px;background:rgba(196,148,58,0.07);border:1px solid rgba(196,148,58,0.2);border-radius:6px;font-size:11px;color:var(--text2)"><b>Примечания:</b> ${data.specialInstructions}</div>` : ''}
+    </div>`;
+}
+
+function plApplyExtracted(dataStr) {
+  const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+  const sv = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined && val !== '' && val !== 0) el.value = val; };
+
+  sv('pl-num',       data.plNumber);
+  sv('pl-inv-ref',   data.invoiceRef);
+  sv('pl-shipper',   data.shipper);
+  sv('pl-origin',    data.countryOfOrigin);
+  sv('pl-consignee', data.consignee);
+  sv('pl-dest',      data.countryOfDestination);
+  sv('pl-pol',       data.portOfLoading);
+  sv('pl-pod',       data.portOfDischarge);
+  sv('pl-hs',        data.hsCode);
+  sv('pl-forwarder', data.forwarder);
+  sv('pl-dims',      data.dimensions);
+  sv('pl-marks',     data.shippingMarks);
+  sv('pl-notes',     data.specialInstructions);
+  sv('pl-signer',    data.signedBy);
+  sv('pl-sign-place',data.signPlace);
+
+  if (data.plDate && /^\d{4}-\d{2}-\d{2}$/.test(data.plDate)) sv('pl-date', data.plDate);
+  if (data.signDate && /^\d{4}-\d{2}-\d{2}$/.test(data.signDate)) sv('pl-sign-date', data.signDate);
+
+  // Totals
+  if (data.totalPackages) { const el = document.getElementById('pl-total-pkgs'); if (el) { el.value = data.totalPackages; el.dataset.manual = '1'; } }
+  if (data.totalNetWeight) { const el = document.getElementById('pl-net-total'); if (el) { el.value = parseFloat(data.totalNetWeight).toFixed(2); el.dataset.manual = '1'; } }
+  if (data.totalGrossWeight) { const el = document.getElementById('pl-gross-total'); if (el) { el.value = parseFloat(data.totalGrossWeight).toFixed(2); el.dataset.manual = '1'; } }
+  if (data.totalVolume) { const el = document.getElementById('pl-vol-total'); if (el) { el.value = parseFloat(data.totalVolume).toFixed(3); el.dataset.manual = '1'; } }
+
+  // Incoterms select
+  if (data.incoterms) {
+    const incoEl = document.getElementById('pl-inco');
+    if (incoEl) {
+      const opt = Array.from(incoEl.options).find(o => o.value.startsWith(data.incoterms.toUpperCase().split(' ')[0]));
+      if (opt) incoEl.value = opt.value;
+    }
+  }
+
+  // Package type select
+  if (data.packageType) {
+    const pkgEl = document.getElementById('pl-pkg-type');
+    if (pkgEl) {
+      const opt = Array.from(pkgEl.options).find(o => o.value.toLowerCase().includes(data.packageType.toLowerCase().slice(0,4)));
+      if (opt) pkgEl.value = opt.value;
+    }
+  }
+
+  // Shipping mode select
+  if (data.shippingMode) {
+    const modeEl = document.getElementById('pl-mode');
+    if (modeEl) {
+      const mode = data.shippingMode.toLowerCase();
+      const opt = Array.from(modeEl.options).find(o =>
+        o.value.toLowerCase().includes(mode) || mode.includes(o.value.toLowerCase().split(' ')[0])
+      );
+      if (opt) modeEl.value = opt.value;
+    }
+  }
+
+  // Fill items
+  if (data.items?.length) {
+    plRows.length = 0;
+    data.items.forEach(it => {
+      plRows.push({
+        desc:  it.description || '',
+        qty:   parseFloat(it.quantity)   || 0,
+        unit:  it.unit || 'Pcs',
+        net:   parseFloat(it.netWeight)  || 0,
+        gross: parseFloat(it.grossWeight)|| 0,
+        vol:   parseFloat(it.volume)     || 0,
+        pkgs:  parseFloat(it.packages)   || 0,
+      });
+    });
+    plRenderTable();
+    plCalcTotals();
+  }
+
+  document.getElementById('pl-import-preview').style.display = 'none';
+  plShowStatus('success', `✅ Данные применены — ${data.items?.length || 0} позиций загружено. Проверьте форму.`);
+  document.getElementById('pl-num')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 
 // ════════════════════════════════════════════
 // ── MULTI-COMPANY SUPPORT ──
