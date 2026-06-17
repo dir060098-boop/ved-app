@@ -568,7 +568,7 @@
           </div>
           <div class="field span2">
             <label>Адрес</label>
-            <input id="c-buyer-addr" placeholder="117335, г. Москва, ул. Вавилова, д.79, корп.1, офис 6-3, этаж 2 / 79/1 Vavilova Street, Office 6-3, 2nd floor, 117335 Moscow, Russia">
+            <input id="c-buyer-addr">
           </div>
           <div class="field">
             <label>Представитель (ФИО)</label>
@@ -941,11 +941,11 @@
       <div class="form-grid cols-3">
         <div class="field">
           <label>Номер инвойса</label>
-          <input id="i-num" placeholder="EXP/INV/3356">
+          <input id="i-num">
         </div>
         <div class="field">
           <label>Дата</label>
-          <input id="i-date" type="date" placeholder="2025-10-31">
+          <input id="i-date" type="date">
         </div>
         <div class="field">
           <label>TCL Job No.</label>
@@ -953,7 +953,7 @@
         </div>
         <div class="field">
           <label>Номер договора</label>
-          <input id="i-contract-num" placeholder="ENDV2026-03/4" oninput="invCheckSpecRows(this.value)">
+          <input id="i-contract-num" oninput="invCheckSpecRows(this.value)">
           <div id="inv-spec-banner" style="display:none;background:var(--co-accent-light);border:1px solid var(--co-accent-border);border-radius:var(--radius);padding:10px 14px;margin-top:8px;font-size:12px"></div>
         </div>
         <div class="field">
@@ -988,11 +988,11 @@
       <div class="form-grid">
         <div class="field span2">
           <label>Экспортёр</label>
-          <input id="i-exporter" placeholder="THERMO CABLES LIMITED, 28, Nagarjuna Hills, Punjagutta, Hyderabad-500082, India">
+          <input id="i-exporter">
         </div>
         <div class="field span2">
           <label>Грузополучатель (Consignee)</label>
-          <input id="i-consignee" placeholder="ENDEAVOUR, 79/1 Vavilova Street., Office 6-3, 117335 Moscow, Russia">
+          <input id="i-consignee">
         </div>
       </div>
 
@@ -1000,7 +1000,7 @@
       <div class="form-grid cols-3">
         <div class="field">
           <label>Перевозка (Pre-Carriage)</label>
-          <input id="i-precarriage" placeholder="BY ROAD">
+          <input id="i-precarriage">
         </div>
         <div class="field">
           <label>Порт погрузки</label>
@@ -1020,7 +1020,7 @@
         </div>
         <div class="field">
           <label>HS Code</label>
-          <input id="i-hs" placeholder="85441990">
+          <input id="i-hs">
         </div>
       </div>
 
@@ -1121,11 +1121,11 @@
       <div class="form-grid cols-3" style="margin-top:12px">
         <div class="field">
           <label>№ Упаковочного листа</label>
-          <input id="pl-num" placeholder="PL/3356">
+          <input id="pl-num">
         </div>
         <div class="field">
           <label>Дата</label>
-          <input id="pl-date" type="date" placeholder="2025-10-31">
+          <input id="pl-date" type="date">
         </div>
         <div class="field">
           <label>Инвойс №</label>
@@ -1133,7 +1133,7 @@
         </div>
         <div class="field span2">
           <label>Продавец / Shipper</label>
-          <input id="pl-shipper" placeholder="THERMO CABLES LIMITED, 28, Nagarjuna Hills, Punjagutta, Hyderabad-500082, India">
+          <input id="pl-shipper">
         </div>
         <div class="field">
           <label>Страна происхождения</label>
@@ -1141,7 +1141,7 @@
         </div>
         <div class="field span2">
           <label>Покупатель / Consignee</label>
-          <input id="pl-consignee" placeholder="ENDEAVOUR, 79/1 Vavilova Street., Office 6-3, 117335 Moscow, Russia">
+          <input id="pl-consignee">
         </div>
         <div class="field">
           <label>Страна назначения</label>
@@ -1164,7 +1164,7 @@
         </div>
         <div class="field">
           <label>Порт / пункт отгрузки</label>
-          <input id="pl-pol" placeholder="Chennai, Hyderabad...">
+          <input id="pl-pol">
         </div>
         <div class="field">
           <label>Порт / пункт назначения</label>
@@ -1182,7 +1182,7 @@
         </div>
         <div class="field">
           <label>HS Code</label>
-          <input id="pl-hs" placeholder="85441990" style="font-family:'Fira Code',monospace">
+          <input id="pl-hs" style="font-family:'Fira Code',monospace">
         </div>
         <div class="field">
           <label>Экспедитор / Forwarder</label>
@@ -1278,7 +1278,7 @@
       <div class="form-grid" style="margin-top:12px">
         <div class="field">
           <label>Маркировка грузовых мест (Shipping Marks)</label>
-          <textarea id="pl-marks" rows="5" placeholder="ENDEAVOUR&#10;MOSCOW, RUSSIA&#10;PO: ENDV2026-03/4&#10;C/No. 1-12&#10;MADE IN INDIA" style="width:100%;font-family:'Fira Code',monospace;font-size:11px"></textarea>
+          <textarea id="pl-marks" rows="5" style="width:100%;font-family:'Fira Code',monospace;font-size:11px"></textarea>
         </div>
         <div class="field">
           <label>Особые инструкции / Special Instructions</label>
@@ -1294,11 +1294,11 @@
         </div>
         <div class="field">
           <label>Место подписания</label>
-          <input id="pl-sign-place" placeholder="Hyderabad, India">
+          <input id="pl-sign-place">
         </div>
         <div class="field">
           <label>Дата подписания</label>
-          <input id="pl-sign-date" type="date" placeholder="2025-10-31">
+          <input id="pl-sign-date" type="date">
         </div>
       </div>
 
@@ -1346,7 +1346,7 @@
         <div class="form-grid cols-3">
           <div class="field">
             <label>Описание груза</label>
-            <input id="rfq-cargo" placeholder="Armoured Cables (HS: 85441990)">
+            <input id="rfq-cargo">
           </div>
           <div class="field">
             <label>Вес брутто (кг)</label>
@@ -1380,7 +1380,7 @@
         <div class="form-grid">
           <div class="field">
             <label>Место отправки (откуда)</label>
-            <input id="rfq-origin" placeholder="Hyderabad, India (EXW)">
+            <input id="rfq-origin">
           </div>
           <div class="field">
             <label>Место назначения (куда)</label>
@@ -1431,7 +1431,7 @@
         <div class="form-grid">
           <div class="field">
             <label>Компания</label>
-            <input id="rfq-from-company" placeholder="ENDEAVOUR">
+            <input id="rfq-from-company">
           </div>
           <div class="field">
             <label>Контактное лицо</label>
@@ -1591,7 +1591,7 @@
           </div>
           <div class="field">
             <label>Номер поставки / PO</label>
-            <input id="m-po" placeholder="ENDV2026-03/4" oninput="contractAutoFill(this.value,'tracker')">
+            <input id="m-po" oninput="contractAutoFill(this.value,'tracker')">
             <div id="m-autofill-hint" style="display:none;font-size:11px;color:var(--co-accent);margin-top:4px"></div>
           </div>
           <div class="field">
@@ -1600,7 +1600,7 @@
           </div>
           <div class="field span2">
             <label>Описание товара</label>
-            <input id="m-cargo" placeholder="Armoured Cables (HS: 85441990)">
+            <input id="m-cargo">
           </div>
           <div class="field">
             <label>Стоимость груза</label>
@@ -1616,7 +1616,7 @@
         <div class="form-grid">
           <div class="field">
             <label>Откуда</label>
-            <input id="m-from" placeholder="Hyderabad, India">
+            <input id="m-from">
           </div>
           <div class="field">
             <label>Куда</label>
@@ -1897,7 +1897,7 @@
           </div>
           <div class="field">
             <label>№ PO / Поставка</label>
-            <input id="dl-po-inp" placeholder="ENDV2026-03/4">
+            <input id="dl-po-inp">
           </div>
           <div class="field">
             <label>Поставщик / Контрагент</label>
@@ -1972,11 +1972,11 @@
           </div>
           <div class="field">
             <label>Город</label>
-            <input id="sp-f-city" placeholder="Hyderabad">
+            <input id="sp-f-city">
           </div>
           <div class="field">
             <label>Адрес</label>
-            <input id="sp-f-addr" placeholder="28, Nagarjuna Hills...">
+            <input id="sp-f-addr">
           </div>
           <div class="field">
             <label>Контактное лицо</label>
@@ -2294,7 +2294,7 @@
         <div class="form-grid cols-3">
           <div class="field">
             <label>№ PO / Поставка</label>
-            <input id="pm-f-po" placeholder="ENDV2026-03/4" list="pm-po-list" oninput="contractAutoFill(this.value,'payments')">
+            <input id="pm-f-po" list="pm-po-list" oninput="contractAutoFill(this.value,'payments')">
             <div id="pm-autofill-hint" style="display:none;font-size:11px;color:var(--co-accent);margin-top:4px"></div>
             <datalist id="pm-po-list"></datalist>
           </div>
@@ -2498,7 +2498,7 @@
           </div>
           <div class="field span2">
             <label>Связанный договор (если есть)</label>
-            <input id="pr-f-contract" placeholder="ENDV2026-03/4" oninput="prContractHint(this.value)">
+            <input id="pr-f-contract" oninput="prContractHint(this.value)">
             <div id="pr-f-contract-hint" style="font-size:10px;margin-top:3px;font-family:'JetBrains Mono',monospace"></div>
           </div>
           <div class="field span2">
