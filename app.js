@@ -2556,19 +2556,70 @@ function initAuth() {
   setTimeout(() => { const el = document.getElementById('auth-login'); if(el) el.focus(); }, 50);
 }
 
-function doLogin() {
+// Слить пользователя с бэкенда в локальный ved_users (с паролем, который он ввёл),
+// чтобы офлайн-вход в следующий раз тоже сработал.
+function _mergeBackendUserLocal(u, pass) {
+  try {
+    const users = getUsers();
+    const i = users.findIndex(x => x.login === u.login);
+    const merged = { ...(i >= 0 ? users[i] : {}), login: u.login, name: u.name,
+      dept: u.dept, company: u.company, access: u.access, active: u.active, pass };
+    if (i >= 0) users[i] = merged; else users.push(merged);
+    saveUsers(users);
+  } catch (e) {}
+}
+
+async function doLogin() {
   const login = document.getElementById('auth-login').value.trim();
   const pass  = document.getElementById('auth-pass').value;
   const err   = document.getElementById('auth-err');
+  const btn   = document.getElementById('auth-btn');
 
   if (!login || !pass) { err.textContent = 'Введите логин и пароль'; return; }
+  err.textContent = '';
 
+  // ── 1) Вход против бэкенда (реальные пользователи команды + JWT) ──
+  if (typeof apiLogin === 'function') {
+    if (btn) { btn.disabled = true; btn.textContent = 'Вход…'; }
+    try {
+      const ok = await apiLogin(login, pass);
+      if (ok && typeof apiFetch === 'function') {
+        const res = await apiFetch('/api/v1/auth/me');
+        if (res && res.ok) {
+          const u = await res.json();
+          const local = getUsers().find(x => x.login === u.login);
+          const access = (Array.isArray(u.access) && u.access.length) ? u.access
+                       : (u.is_superuser ? ['all'] : (local?.access || ['all']));
+          const user = {
+            login: u.login, name: u.name || u.login,
+            dept: u.department || local?.dept || 'ved',
+            company: u.company || null, access,
+            active: u.is_active !== false,
+          };
+          if (user.active === false) { err.textContent = 'Доступ заблокирован. Обратитесь к администратору.'; return; }
+          _mergeBackendUserLocal(user, pass);
+          try { localStorage.setItem('ved_session', JSON.stringify({ login: user.login })); } catch(e) {}
+          loginSuccess(user);
+          return;
+        }
+      }
+    } catch (e) {
+      // молча — уйдём в локальную проверку ниже
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Войти в систему'; }
+    }
+  }
+
+  // ── 2) Fallback: локальная проверка (офлайн / локальные учётки) ──
   const users = getUsers();
   const user = users.find(u => u.login === login && u.pass === pass);
-
-  if (!user) { err.textContent = 'Неверный логин или пароль'; return; }
+  if (!user) {
+    err.textContent = (typeof apiIsDown === 'function' && apiIsDown())
+      ? 'Сервер недоступен, а локальной учётной записи нет на этом устройстве.'
+      : 'Неверный логин или пароль';
+    return;
+  }
   if (user.active === false) { err.textContent = 'Доступ заблокирован. Обратитесь к администратору.'; return; }
-
   try { localStorage.setItem('ved_session', JSON.stringify({ login: user.login })); } catch(e) {}
   loginSuccess(user);
 }

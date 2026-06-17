@@ -142,20 +142,29 @@ async function _apiRefreshTokens() {
   return false;
 }
 
+// Возвращает true при успешном входе (JWT сохранён), иначе false.
 async function apiLogin(login, password) {
-  if (!VED_API_CONFIG.enabled) return;
+  if (!VED_API_CONFIG.enabled) return false;
+  if (typeof apiIsDown === 'function' && apiIsDown()) return false;  // предохранитель открыт
   try {
     const form = new URLSearchParams({ username: login, password });
     const res = await fetch(VED_API_CONFIG.baseUrl + '/api/v1/auth/login', {
       method: 'POST', body: form,
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(6000) : undefined,
     });
     if (res.ok) {
       const data = await res.json();
       localStorage.setItem(VED_API_CONFIG.tokenKey,  data.access_token);
       localStorage.setItem(VED_API_CONFIG.refreshKey, data.refresh_token);
+      if (typeof _apiMarkUp === 'function') _apiMarkUp();
       if (VED_API_CONFIG.debug) console.log('[API] JWT tokens stored');
+      return true;
     }
-  } catch (_) {}
+    return false;   // неверные креды (401) — но сервер доступен
+  } catch (_) {
+    if (typeof _apiMarkDown === 'function') _apiMarkDown();  // сеть/таймаут
+    return false;
+  }
 }
 
 async function apiLogout() {
@@ -178,21 +187,8 @@ async function apiLogout() {
         const _orig = doLogout;
         window.doLogout = function () { apiLogout(); _orig(); };
       }
-      // Перехватить форму логина для получения JWT
-      const loginBtn =
-        document.getElementById('login-btn') ||
-        document.querySelector('button[onclick*="doLogin"]');
-      if (!loginBtn) return;
-      const origOnclick = loginBtn.onclick;
-      loginBtn.onclick = function (e) {
-        const loginInput = document.getElementById('login-input') ||
-                           document.querySelector('input[type="text"]');
-        const passInput  = document.querySelector('input[type="password"]');
-        const loginVal   = loginInput?.value || '';
-        const passVal    = passInput?.value  || '';
-        if (origOnclick) origOnclick.call(this, e);
-        if (loginVal && passVal) apiLogin(loginVal, passVal);
-      };
+      // Патч кнопки логина убран: вход против бэкенда теперь внутри doLogin (app.js),
+      // чтобы не задваивать apiLogin и работать одинаково для клика и Enter.
     }, 200);
   });
 })();
