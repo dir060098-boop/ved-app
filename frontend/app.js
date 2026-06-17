@@ -3563,8 +3563,8 @@ const SP_COLORS = ['#1F7A63','#1C355E','#C4943A','#B85C3A','#6F8FBF','#0B1F3A'];
 
 function spLoad() {
   try { const s=localStorage.getItem('ved_suppliers'); if(s) suppliers=JSON.parse(s); } catch(e) {}
-  // Seed default supplier if empty
-  if (suppliers.length === 0) {
+  // Seed default supplier only once (guard-флаг, чтобы удалённые/очищенные не возвращались)
+  if (suppliers.length === 0 && !localStorage.getItem('ved_suppliers_seed_done')) {
     suppliers = [{
       id: 1, name: 'Thermo Cables Limited', type: 'supplier', country: 'Индия', city: 'Hyderabad',
       addr: '28, Nagarjuna Hills, Punjagutta, Hyderabad-500082', contact: 'C.M. Patel',
@@ -3580,6 +3580,7 @@ function spLoad() {
       created: '2026-01-01'
     }];
     spSave();
+    try { localStorage.setItem('ved_suppliers_seed_done', '1'); } catch(e) {}
   }
 }
 
@@ -7926,6 +7927,26 @@ function vedImportBackup(file) {
   };
   reader.onerror = function () { if (st) st.innerHTML = '<span style="color:var(--red)">⚠ Ошибка чтения файла</span>'; };
   reader.readAsText(file);
+}
+
+/* Полная очистка рабочих данных (для чистого старта команды).
+   Сохраняет: пользователей, сессию, активную компанию, API-ключ, JWT.
+   Ставит ВСЕ seed-флаги, чтобы демо-данные НЕ вернулись после перезагрузки. */
+function vedClearData(skipConfirm) {
+  if (!skipConfirm && !confirm('Удалить ВСЕ рабочие данные (поставки, товары, контрагенты, документы и т.д.)?\n\nПользователи и вход сохранятся. Демо-данные не вернутся. Действие необратимо — при необходимости сначала сделайте бэкап.')) return;
+  const KEEP = ['ved_users','ved_session','ved_active_company','ved_anthropic_key','_api_token','_api_refresh'];
+  const PREFIXES = ['ved_','_si_','_cat_','_cdt_','_trk_','_fin_'];
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k) keys.push(k); }
+  keys.forEach(k => {
+    if (KEEP.includes(k)) return;
+    if (PREFIXES.some(p => k.indexOf(p) === 0)) localStorage.removeItem(k);
+  });
+  // Проставить все seed-флаги — демо больше не сеется
+  ['ved_shipments_seed_done','ved_suppliers_seed_done','_si_migrated_v1',
+   '_cat_seeded_v1','_cdt_seeded_v1','_trk_seeded_v1','_fin_budgets_seeded_v1']
+    .forEach(f => localStorage.setItem(f, '1'));
+  location.reload();
 }
 
 function showApiKeyModal() {
