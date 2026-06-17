@@ -2579,29 +2579,35 @@ async function doLogin() {
   err.textContent = '';
 
   // ── 1) Вход против бэкенда (реальные пользователи команды + JWT) ──
+  // JWT получен ⇒ пароль верен на сервере. Профиль НЕ берём из /auth/me
+  // (его может не быть на задеплоенном бэкенде) — берём из локального
+  // синхронизированного ved_users или из публичного migration-list.
   if (typeof apiLogin === 'function') {
     if (btn) { btn.disabled = true; btn.textContent = 'Вход…'; }
     try {
       const ok = await apiLogin(login, pass);
-      if (ok && typeof apiFetch === 'function') {
-        const res = await apiFetch('/api/v1/auth/me');
-        if (res && res.ok) {
-          const u = await res.json();
-          const local = getUsers().find(x => x.login === u.login);
-          const access = (Array.isArray(u.access) && u.access.length) ? u.access
-                       : (u.is_superuser ? ['all'] : (local?.access || ['all']));
-          const user = {
-            login: u.login, name: u.name || u.login,
-            dept: u.department || local?.dept || 'ved',
-            company: u.company || null, access,
-            active: u.is_active !== false,
-          };
-          if (user.active === false) { err.textContent = 'Доступ заблокирован. Обратитесь к администратору.'; return; }
-          _mergeBackendUserLocal(user, pass);
-          try { localStorage.setItem('ved_session', JSON.stringify({ login: user.login })); } catch(e) {}
-          loginSuccess(user);
-          return;
+      if (ok) {
+        let prof = getUsers().find(x => x.login === login);
+        if (!prof && typeof apiFetch === 'function') {
+          try {
+            const r = await apiFetch('/api/v1/users/migration-list');
+            if (r && r.ok) { const list = await r.json(); prof = (list || []).find(x => x.login === login); }
+          } catch (e) {}
         }
+        const access = (prof && Array.isArray(prof.access) && prof.access.length) ? prof.access : ['all'];
+        const user = {
+          login,
+          name:    (prof && prof.name) || login,
+          dept:    (prof && (prof.dept || prof.department)) || 'ved',
+          company: prof ? (prof.company ?? null) : null,
+          access,
+          active:  !(prof && (prof.active === false || prof.is_active === false)),
+        };
+        if (user.active === false) { err.textContent = 'Доступ заблокирован. Обратитесь к администратору.'; return; }
+        _mergeBackendUserLocal(user, pass);
+        try { localStorage.setItem('ved_session', JSON.stringify({ login: user.login })); } catch(e) {}
+        loginSuccess(user);
+        return;
       }
     } catch (e) {
       // молча — уйдём в локальную проверку ниже
