@@ -2383,8 +2383,11 @@ function toggleClExpand(id, event) {
 }
 
 function renderChecklist() {
-  const tnved = document.getElementById('cl-tnved').value.trim();
-  const country = document.getElementById('cl-country').value;
+  const tnvedEl   = document.getElementById('cl-tnved');
+  const countryEl = document.getElementById('cl-country');
+  if (!tnvedEl || !countryEl) return;   // элементов нет в DOM — тихо выходим (раздел не открыт)
+  const tnved   = tnvedEl.value.trim();
+  const country = countryEl.value;
 
   let totalItems = 0, checkedItems = 0;
 
