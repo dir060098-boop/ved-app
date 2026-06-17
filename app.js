@@ -82,11 +82,7 @@ function fmtDate(d) { if (!d) return ''; const dt = new Date(d); return dt.toLoc
 function fmtDateRu(d) { if (!d) return ''; const dt = new Date(d); return dt.toLocaleDateString('ru-RU', {day:'numeric', month:'long', year:'numeric'}); }
 
 // ── SPEC ROWS ──
-const specRows = [
-  {desc:'3C X 0.50SQ.MM ARM CABLE', descRu:'3C X 0.50SQ.MM ARM Кабель', unit:'Mtrs', qty:300, price:135.63},
-  {desc:'7C X 0.50SQ.MM ARM CABLE', descRu:'7C X 0.50SQ.MM ARM Кабель', unit:'Mtrs', qty:300, price:206.35},
-  {desc:'4C X 0.50SQ.MM ARM CABLE', descRu:'4C X 0.50SQ.MM ARM Кабель', unit:'Mtrs', qty:300, price:155.06},
-];
+const specRows = [];   // пусто: строки добавляются вручную / из каталога / из поставки
 
 function renderSpecTable() {
   const tbody = document.getElementById('spec-goods-body');
@@ -115,11 +111,7 @@ function addSpecRow() {
 }
 
 // ── INV ROWS ──
-const invRows = [
-  {desc:'3C X 0.50SQ.MM ARM CABLE', qty:300, unit:'Mtrs', price:135.63},
-  {desc:'7C X 0.50SQ.MM ARM CABLE', qty:300, unit:'Mtrs', price:206.35},
-  {desc:'4C X 0.50SQ.MM ARM CABLE', qty:300, unit:'Mtrs', price:155.06},
-];
+const invRows = [];   // пусто: строки добавляются вручную / из каталога / из поставки
 
 const INV_UNITS = ['Pcs','Mtrs','Kgs','Sets','Rolls','Coils','Drums','Cartons','L','T','m²'];
 const INV_CUR_SYM = {USD:'$',EUR:'€',CNY:'¥',INR:'₹',RUB:'₽',GBP:'£'};
