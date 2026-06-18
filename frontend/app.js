@@ -58,7 +58,7 @@ function showSection(name) {
   if (name === 'admin') renderAdminTable();
   if (name === 'deadlines') renderDeadlines();
   if (name === 'customs') tplInit();
-  if (name === 'suppliers') renderSuppliers();
+  if (name === 'suppliers') { renderSuppliers(); _spRefreshFromApi(); }
   if (name === 'currency') fxInit();
   if (name === 'packing') plInit();
   if (name === 'budget') { bgLoad(); renderBudgets(); }
@@ -3556,27 +3556,53 @@ const SP_TYPES = {
 
 const SP_COLORS = ['#1F7A63','#1C355E','#C4943A','#B85C3A','#6F8FBF','#0B1F3A'];
 
+// ── Контрагенты: мапперы API ↔ фронт (бэкенд = address/position/account, фронт = addr/pos/acc) ──
+function _spApiToLocal(a) {
+  return {
+    id: a.id, name: a.name || '', type: a.type || 'supplier',
+    country: a.country || '', city: a.city || '', addr: a.address || '',
+    contact: a.contact || '', pos: a.position || '', email: a.email || '',
+    phone: a.phone || '', web: a.web || '', inn: a.inn || '',
+    bank: a.bank || '', swift: a.swift || '', acc: a.account || '', ifsc: a.ifsc || '',
+    currency: a.currency || 'USD', rating: a.rating || 3,
+    lead_time_days: a.lead_time_days || 0, payment_terms: a.payment_terms || '',
+    notes: a.notes || '', company: a.company || null,
+    history: Array.isArray(a.history) ? a.history : [],
+    created: (a.created_at || '').slice(0, 10),
+  };
+}
+function _spLocalToApi(s) {
+  return {
+    name: s.name || '', type: s.type || 'supplier', company: s.company || null,
+    country: s.country || '', city: s.city || '', address: s.addr || '',
+    contact: s.contact || '', position: s.pos || '', email: s.email || '',
+    phone: s.phone || '', web: s.web || '', inn: s.inn || '',
+    bank: s.bank || '', swift: s.swift || '', account: s.acc || '', ifsc: s.ifsc || '',
+    currency: s.currency || 'USD', rating: parseInt(s.rating) || 3,
+    lead_time_days: parseInt(s.lead_time_days) || 0,
+    payment_terms: s.payment_terms || '', notes: s.notes || '',
+    history: Array.isArray(s.history) ? s.history : [],
+  };
+}
+
 function spLoad() {
-  try { const s=localStorage.getItem('ved_suppliers'); if(s) suppliers=JSON.parse(s); } catch(e) {}
-  // Seed default supplier only once (guard-флаг, чтобы удалённые/очищенные не возвращались)
-  if (suppliers.length === 0 && !localStorage.getItem('ved_suppliers_seed_done')) {
-    suppliers = [{
-      id: 1, name: 'Thermo Cables Limited', type: 'supplier', country: 'Индия', city: 'Hyderabad',
-      addr: '28, Nagarjuna Hills, Punjagutta, Hyderabad-500082', contact: 'C.M. Patel',
-      pos: 'Authorised Signatory', email: 'info@thermocables.com', phone: '+91(40)44292922',
-      web: 'https://thermocables.com', inn: 'AAACT1234F', bank: 'HDFC Bank Ltd', swift: 'HDFCINBB',
-      acc: '50200049492660', ifsc: 'HDFC0001041', currency: 'INR', rating: 5,
-      leadtime: '16 недель', lead_time_days: 112,
-      default_currency: 'INR', payment_terms: '30% advance, 70% before shipment',
-      notes: 'Основной поставщик кабельной продукции. Надёжный партнёр с 2024 г.',
-      history: [
-        { date: '10.02.2026', po: 'ENDV2026-03/4', amount: '149,112 INR', note: 'Кабели 3C/7C/4C × 300м' },
-      ],
-      created: '2026-01-01'
-    }];
+  // Кэш-первый: мгновенно из localStorage, затем обновляем из бэкенда (общий справочник команды).
+  try { const s = localStorage.getItem('ved_suppliers'); if (s) suppliers = JSON.parse(s); } catch(e) {}
+  _spRefreshFromApi();
+}
+
+// Обновить список из бэкенда. При недоступности — тихо остаёмся на localStorage.
+async function _spRefreshFromApi() {
+  if (typeof apiFetch !== 'function') return;
+  try {
+    const r = await apiFetch('/api/v1/suppliers');
+    if (!r || !r.ok) return;
+    const d = await r.json();
+    suppliers = (d.items || []).map(_spApiToLocal);
     spSave();
-    try { localStorage.setItem('ved_suppliers_seed_done', '1'); } catch(e) {}
-  }
+    const sec = document.getElementById('section-suppliers');
+    if (sec && sec.classList.contains('active') && typeof renderSuppliers === 'function') renderSuppliers();
+  } catch(e) {}
 }
 
 function spSave() {
@@ -3637,7 +3663,7 @@ function spToggleAddForm(editId) {
 function spSaveRecord() {
   const name = document.getElementById('sp-f-name').value.trim();
   if (!name) { alert('Введите название'); return; }
-  const editId = parseInt(document.getElementById('sp-edit-id').value) || null;
+  const editId = document.getElementById('sp-edit-id').value || null;   // uuid (строка) или пусто
   const data = {
     name, type: document.getElementById('sp-f-type').value,
     country:  document.getElementById('sp-f-country').value.trim(),
@@ -3662,12 +3688,13 @@ function spSaveRecord() {
     notes:            document.getElementById('sp-f-notes').value.trim(),
   };
   let newId = null;
+  let existing = null;
   if (editId) {
-    const idx = suppliers.findIndex(x => x.id === editId);
-    if (idx >= 0) suppliers[idx] = { ...suppliers[idx], ...data };
+    const idx = suppliers.findIndex(x => String(x.id) === String(editId));
+    if (idx >= 0) { suppliers[idx] = { ...suppliers[idx], ...data }; existing = suppliers[idx]; }
     newId = editId;
   } else {
-    newId = Date.now();
+    newId = 'tmp' + Date.now();   // временный id до получения uuid с бэкенда
     suppliers.push({ id: newId, ...data, history: [], created: new Date().toISOString().slice(0,10) });
   }
   spSave();
@@ -3676,17 +3703,40 @@ function spSaveRecord() {
   // auto-expand the saved card
   setTimeout(() => {
     const el = document.getElementById('sp-card-' + newId);
-    if (el) {
-      el.classList.add('expanded');
-      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
+    if (el) { el.classList.add('expanded'); el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
   }, 50);
+
+  // Запись в бэкенд (общий справочник). Офлайн → запись останется локально.
+  if (typeof apiFetch === 'function') {
+    (async () => {
+      try {
+        if (editId) {
+          await apiFetch('/api/v1/suppliers/' + editId, {
+            method: 'PUT', body: JSON.stringify(_spLocalToApi(existing || data)),
+          });
+        } else {
+          const r = await apiFetch('/api/v1/suppliers', {
+            method: 'POST', body: JSON.stringify(_spLocalToApi({ ...data, history: [] })),
+          });
+          if (r && r.ok) {
+            const created = await r.json();
+            const idx = suppliers.findIndex(x => x.id === newId);
+            if (idx >= 0) { suppliers[idx].id = created.id; spSave(); }
+          }
+        }
+      } catch (e) {}
+    })();
+  }
 }
 
 function spDelete(id) {
   if (!confirm('Удалить контрагента? Это действие нельзя отменить.')) return;
-  suppliers = suppliers.filter(s => s.id !== id);
+  suppliers = suppliers.filter(s => String(s.id) !== String(id));
   spSave(); renderSuppliers();
+  // Удаление в бэкенде (только для синхронизированных uuid-записей)
+  if (typeof apiFetch === 'function' && !String(id).startsWith('tmp')) {
+    apiFetch('/api/v1/suppliers/' + id, { method: 'DELETE' }).catch(() => {});
+  }
 }
 
 function spToggleExpand(id) {
@@ -3699,11 +3749,15 @@ function spAddHistory(id) {
   if (!po) return;
   const amount = prompt('Сумма (например: 149,112 INR):') || '';
   const note   = prompt('Примечание:') || '';
-  const s = suppliers.find(x => x.id === id);
+  const s = suppliers.find(x => String(x.id) === String(id));
   if (!s) return;
   if (!s.history) s.history = [];
   s.history.unshift({ date: new Date().toLocaleDateString('ru-RU'), po, amount, note });
   spSave(); renderSuppliers();
+  // Сохранить историю в бэкенд
+  if (typeof apiFetch === 'function' && !String(id).startsWith('tmp')) {
+    apiFetch('/api/v1/suppliers/' + id, { method: 'PUT', body: JSON.stringify(_spLocalToApi(s)) }).catch(() => {});
+  }
   setTimeout(() => {
     const el = document.getElementById('sp-card-'+id);
     if (el) el.classList.add('expanded');
