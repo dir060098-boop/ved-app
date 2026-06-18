@@ -3855,7 +3855,7 @@ function renderSuppliers() {
       </div>` : '';
 
     return `<div class="sp-card" id="sp-card-${s.id}" style="margin-bottom:12px">
-      <div class="sp-card-head" onclick="spToggleExpand(${s.id})">
+      <div class="sp-card-head" onclick="spToggleExpand('${s.id}')">
         <div class="sp-avatar" style="background:${color}">${initials}</div>
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -3889,9 +3889,9 @@ function renderSuppliers() {
           <div class="sp-stat"><div class="sp-stat-n">${histCount}</div><div class="sp-stat-l">Поставок</div></div>
           <div style="flex:1"></div>
           <div style="display:flex;gap:8px;align-items:center">
-            <button class="admin-action-btn" onclick="spAddHistory(${s.id});event.stopPropagation()">+ Поставка</button>
-            <button class="admin-action-btn" onclick="spToggleAddForm(${s.id});event.stopPropagation()">✎ Изменить</button>
-            <button class="admin-action-btn danger" onclick="spDelete(${s.id});event.stopPropagation()">× Удалить</button>
+            <button class="admin-action-btn" onclick="spAddHistory('${s.id}');event.stopPropagation()">+ Поставка</button>
+            <button class="admin-action-btn" onclick="spToggleAddForm('${s.id}');event.stopPropagation()">✎ Изменить</button>
+            <button class="admin-action-btn danger" onclick="spDelete('${s.id}');event.stopPropagation()">× Удалить</button>
           </div>
         </div>
       </div>
