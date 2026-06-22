@@ -17876,56 +17876,54 @@ function siOpenPicker(shipId, docType, docId, cb) {
     return;
   }
 
-  el.innerHTML = items.map(it => {
+  // Плоская таблица-строки (а не карточки-контейнеры)
+  const rowsHTML = items.map(it => {
     const used  = siUsedQty(it.id, docType);
     const avail = Math.max(0, (parseFloat(it.quantity)||0) - used);
+    const dis   = avail <= 0;
+    const mono  = "font-family:'JetBrains Mono',monospace";
     return `
-      <div class="si-picker-row" id="si-pick-${it.id}">
-        <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;
-                      padding:10px 14px;border-radius:var(--radius-sm);transition:background .1s"
-               onmouseover="this.style.background='var(--co-accent-light)'"
-               onmouseout="this.style.background=''">
+      <tr style="border-top:1px solid var(--border);${dis?'opacity:.45':''}">
+        <td style="padding:7px 8px;vertical-align:top">
           <input type="checkbox" value="${it.id}" class="si-pick-chk"
-                 style="margin-top:3px;accent-color:var(--co-accent);cursor:pointer"
-                 ${avail <= 0 ? 'disabled' : ''}
-                 onchange="siPickerToggle('${it.id}',this.checked)">
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:12.5px">${it.description || '—'}</div>
-            <div style="font-size:10.5px;color:var(--text3);margin-top:2px;
-                        font-family:'JetBrains Mono',monospace">
-              ${it.supplier_sku ? `SKU: ${it.supplier_sku} · ` : ''}
-              ${it.hs_code ? `ТН ВЭД: ${it.hs_code} · ` : ''}
-              ${it.country_of_origin || ''}
-            </div>
-            <div style="font-size:11px;color:var(--text2);margin-top:3px">
-              Всего: <b>${fmtNum(it.quantity)} ${it.unit}</b>
-              · Использовано: <b>${fmtNum(used)}</b>
-              · <span style="color:${avail>0?'var(--green)':'var(--red)'}">
-                Доступно: <b>${fmtNum(avail)}</b>
-                </span>
-              · ${fmtNum(it.unit_price)} ${it.currency}
-            </div>
-          </div>
-          <div style="flex-shrink:0;text-align:right">
-            <div style="font-family:'JetBrains Mono',monospace;font-weight:800;
-                        color:var(--co-accent);font-size:13px">${fmtNum(it.total_price || 0)}</div>
-            <div style="font-size:9.5px;color:var(--text3)">${it.currency}</div>
-          </div>
-        </label>
-        <div class="si-pick-qty-row" id="si-qty-${it.id}" style="display:none;
-             padding:0 14px 10px;border-top:1px solid var(--border)">
-          <label style="font-size:11.5px;color:var(--text2);display:flex;align-items:center;gap:10px">
-            Количество для документа:
-            <input type="number" id="si-pick-qty-${it.id}"
-                   value="${avail}" min="0.001" max="${avail}" step="0.001"
-                   style="width:100px;padding:4px 8px;border:1px solid var(--border);
-                          border-radius:var(--radius-sm);font-family:'JetBrains Mono',monospace;
-                          font-size:12px;background:var(--surface);color:var(--text)">
-            <span style="color:var(--text3)">${it.unit} (макс: ${fmtNum(avail)})</span>
-          </label>
-        </div>
-      </div>`;
+                 style="accent-color:var(--co-accent);cursor:pointer" ${dis?'disabled':''}>
+        </td>
+        <td style="padding:7px 8px">
+          <div style="font-weight:600;font-size:12px">${it.description || '—'}</div>
+          ${it.country_of_origin ? `<div style="font-size:10px;color:var(--text3)">${it.country_of_origin}</div>` : ''}
+        </td>
+        <td style="padding:7px 8px;${mono};font-size:10.5px;color:var(--text3)">${it.supplier_sku || '—'}</td>
+        <td style="padding:7px 8px;${mono};font-size:10.5px;color:var(--text3)">${it.hs_code || '—'}</td>
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap">
+          <span style="color:${avail>0?'var(--green)':'var(--red)'};font-weight:700">${fmtNum(avail)}</span>
+          <span style="color:var(--text3);font-size:10px"> ${it.unit}</span>
+          ${used>0?`<div style="font-size:9.5px;color:var(--text3)">использ. ${fmtNum(used)} из ${fmtNum(it.quantity)}</div>`:''}
+        </td>
+        <td style="padding:7px 8px;text-align:right;${mono};font-size:11px;white-space:nowrap">${fmtNum(it.unit_price)} ${it.currency}</td>
+        <td style="padding:7px 8px;text-align:right">
+          <input type="number" id="si-pick-qty-${it.id}"
+                 value="${avail}" min="0" max="${avail}" step="0.001" ${dis?'disabled':''}
+                 style="width:88px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);
+                        ${mono};font-size:12px;text-align:right;background:var(--surface);color:var(--text)">
+        </td>
+      </tr>`;
   }).join('');
+
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="text-align:left;color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.04em">
+          <th style="padding:6px 8px;width:30px"></th>
+          <th style="padding:6px 8px">Наименование</th>
+          <th style="padding:6px 8px">SKU</th>
+          <th style="padding:6px 8px">ТН ВЭД</th>
+          <th style="padding:6px 8px;text-align:right">Доступно</th>
+          <th style="padding:6px 8px;text-align:right">Цена</th>
+          <th style="padding:6px 8px;text-align:right">Кол-во в документ</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHTML}</tbody>
+    </table>`;
 
   document.getElementById('si-picker-bg').classList.add('open');
 }
