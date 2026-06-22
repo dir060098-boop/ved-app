@@ -70,7 +70,7 @@ function showSection(name) {
   if (name === 'dashboard') setTimeout(() => dashLoad(), 50);
   if (name === 'purchase') prLoad();
   if (name === 'rfq-supplier') rfqsLoad();
-  if (name === 'catalog') catLoad();
+  if (name === 'catalog') { catLoad(); _catRefreshFromApi(); }
   if (name === 'shipments') shpLoad();
   if (name === 'analytics') anlLoad();
   if (name === 'customs-declarations') cdtLoad();
@@ -11666,6 +11666,21 @@ function catLoad() {
   }
 }
 
+// Обновить каталог из бэкенда (общий справочник). Поля API ≈ локальные, маппинг не нужен.
+// При недоступности — тихо остаёмся на localStorage-кэше.
+async function _catRefreshFromApi() {
+  if (typeof apiFetch !== 'function') return;
+  try {
+    const r = await apiFetch('/api/v1/products');
+    if (!r || !r.ok) return;
+    const d = await r.json();
+    localStorage.setItem('ved_products', JSON.stringify(d.items || []));
+    try { localStorage.setItem('_cat_seeded_v1', '1'); } catch(e) {}   // бэкенд = источник правды, демо не сеять
+    const sec = document.getElementById('section-catalog');
+    if (sec && sec.classList.contains('active') && typeof catLoad === 'function') catLoad();
+  } catch(e) {}
+}
+
 function catSetFilter(f, el) {
   _catFilter = f;
   document.querySelectorAll('[data-cat-filter]').forEach(x => x.classList.remove('active'));
@@ -12120,6 +12135,17 @@ function catSave() {
 
   catCloseForm();
   catLoad();
+
+  // Запись в бэкенд (общий каталог), затем ре-синк (получим серверные uuid).
+  if (typeof apiFetch === 'function') {
+    (async () => {
+      try {
+        if (id) await apiFetch('/api/v1/products/' + id, { method: 'PUT', body: JSON.stringify(data) });
+        else    await apiFetch('/api/v1/products', { method: 'POST', body: JSON.stringify(data) });
+        _catRefreshFromApi();
+      } catch (e) {}
+    })();
+  }
 }
 
 function catDelete(id) {
@@ -12127,6 +12153,9 @@ function catDelete(id) {
   catCloseDetail();
   catLoad();
   showToast('🗑 Товар удалён');
+  if (typeof apiFetch === 'function' && id) {
+    apiFetch('/api/v1/products/' + id, { method: 'DELETE' }).catch(() => {});
+  }
 }
 
 /* ── INTEGRATION: add to Spec / Invoice ────────────────────────── */
