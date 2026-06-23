@@ -14162,6 +14162,38 @@ function shpRenderDocs(s) {
     </div>`;
 
   el.innerHTML += linkedHTML;
+
+  // Прикреплённые файлы-сканы (из бэкенда, напр. проформа) — подгружаем асинхронно
+  el.insertAdjacentHTML('beforeend', `<div id="shpd-scans-${sid}" style="margin-top:18px"></div>`);
+  _shpRenderScans(sid);
+}
+
+// Подгрузить и отрисовать сканы/вложения поставки из бэкенда
+async function _shpRenderScans(sid) {
+  const box = document.getElementById('shpd-scans-' + sid);
+  if (!box || typeof apiFetch !== 'function') return;
+  try {
+    const r = await apiFetch('/api/v1/documents/shipment/' + sid);
+    if (!r || !r.ok) return;
+    const d = await r.json();
+    const items = d.items || [];
+    if (!items.length) return;
+    const base = (typeof VED_API_CONFIG !== 'undefined' && VED_API_CONFIG.baseUrl) ? VED_API_CONFIG.baseUrl : '';
+    box.innerHTML = `
+      <div style="border-top:2px solid var(--border);padding-top:16px">
+        <div style="font-weight:800;font-size:13px;margin-bottom:10px">📎 Сканы и вложения (${items.length})</div>
+        ${items.map(f => `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:16px">${String(f.mime_type||'').includes('pdf')?'📄':'📎'}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:12.5px">${f.original_filename || 'файл'}</div>
+              <div style="font-size:11px;color:var(--text3)">${f.document_type || ''}${f.size_bytes?` · ${Math.round(f.size_bytes/1024)} КБ`:''}</div>
+            </div>
+            <a href="${base}/api/v1/documents/${f.id}/download" target="_blank" rel="noopener"
+               class="admin-action-btn" style="text-decoration:none">⬇ Открыть</a>
+          </div>`).join('')}
+      </div>`;
+  } catch (e) {}
 }
 
 function _shpDocRow(icon, label, date, meta, type, docId, shipId) {
@@ -18247,6 +18279,7 @@ function siDoLoadForDoc(shipId, docType, el) {
    мастер-данные пишутся через findOrCreate* (Фаза 1).
 ════════════════════════════════════════════════════════════════════ */
 let _pfiData = null;          // последний распарсенный JSON
+let _pfiFile = null;          // исходный PDF проформы (для сохранения скана в бэкенд)
 
 function pfiEnsureDom() {
   if (document.getElementById('pfi-bg')) return;
@@ -18309,6 +18342,7 @@ function pfiStatus(type, html) {
 async function pfiHandleFile(file) {
   if (!file) return;
   if (file.size > 20 * 1024 * 1024) { pfiStatus('error', '⚠ Файл слишком большой (максимум 20 МБ)'); return; }
+  _pfiFile = file;   // сохраняем исходный PDF — загрузим в бэкенд при создании поставки
   pfiStatus('loading', 'Загрузка PDF и анализ через Claude AI…');
   try {
     const base64 = await new Promise((res, rej) => {
@@ -18504,6 +18538,16 @@ function pfiConfirm() {
     });
   });
   DB_shipments.update(ship.id, { total_value: total });
+
+  // 3b) Сохранить скан проформы (PDF) в бэкенд, привязав к поставке
+  if (_pfiFile && typeof apiFetch === 'function') {
+    const fd = new FormData();
+    fd.append('file', _pfiFile);
+    fd.append('entity_type', 'shipment');
+    fd.append('entity_id', String(ship.id));
+    fd.append('document_type', 'proforma');
+    apiFetch('/api/v1/documents/upload', { method: 'POST', body: fd }).catch(() => {});
+  }
 
   // 4) Закрыть, открыть карточку, подсказать следующий шаг (Фаза 3 lite)
   pfiClose();
