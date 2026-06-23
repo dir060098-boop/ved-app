@@ -8066,20 +8066,19 @@ async function testApiKey() {
 }
 
 function claudeFetch(body) {
+  // Вызов идёт через бэкенд-прокси (/api/v1/claude/proxy), а НЕ напрямую в Anthropic:
+  //  - ключ не светится прямым запросом из браузера в сторонний сервис;
+  //  - если у пользователя нет ключа, сервер использует свой (ANTHROPIC_API_KEY на Railway)
+  //    → один ключ на команду. Ключ клиента (если есть) шлём опционально.
   const key = getApiKey();
-  if (!key) {
-    throw new Error('API ключ не задан. Нажмите ⚙ API в шапке и введите ключ Anthropic.');
-  }
-  // Direct Anthropic API call — supported from browsers with this header
-  return fetch('https://api.anthropic.com/v1/messages', {
+  const base = (typeof VED_API_CONFIG !== 'undefined' && VED_API_CONFIG.baseUrl)
+    ? VED_API_CONFIG.baseUrl
+    : (document.querySelector('meta[name="api-base-url"]')?.content || '');
+  const payload = key ? { ...body, api_key: key } : body;
+  return fetch(base + '/api/v1/claude/proxy', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify(body)
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
 }
 
