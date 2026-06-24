@@ -17315,7 +17315,13 @@ function dashLoad() {
 function dashRenderKPIs() {
   const ships = DB_shipments.all().filter(s => (s.company || 'ENDV') === activeCompany);
   const active = ships.filter(s => !['delivered','cancelled'].includes(s.status));
-  const totalVal = active.reduce((s, sh) => s + (parseFloat(sh.total_value) || 0), 0);
+  // Сумма по валютам (складывать разные валюты в одно число некорректно)
+  const _byCur = {};
+  active.forEach(sh => { const c = (sh.currency || '—'); _byCur[c] = (_byCur[c] || 0) + (parseFloat(sh.total_value) || 0); });
+  const _curs = Object.keys(_byCur).sort((a, b) => _byCur[b] - _byCur[a]);
+  const totalValStr = _curs.length === 0 ? '0'
+    : _curs.length === 1 ? anlFmtK(_byCur[_curs[0]]) + ' ' + _curs[0]
+    : _curs.slice(0, 2).map(c => anlFmtK(_byCur[c]) + ' ' + c).join(' · ') + (_curs.length > 2 ? ' …' : '');
   const allPRs = DB_purchase_requests.all();
   const pendingPRs = allPRs.filter(p => ['submitted','approved'].includes(p.status));
   const declsAll = DB_customs_declarations.all();
@@ -17327,7 +17333,7 @@ function dashRenderKPIs() {
   set('dkpi-shipments-sub', `всего ${ships.length}`);
   set('dkpi-purchase',      pendingPRs.length);
   set('dkpi-purchase-sub',  `всего ${allPRs.length}`);
-  set('dkpi-value',         anlFmtK(totalVal));
+  set('dkpi-value',         totalValStr);
   set('dkpi-value-sub',     `всего ${ships.length} поставок`);
   set('dkpi-customs',       declsAll.length);
   set('dkpi-customs-sub',   `${declsAll.filter(d => d.status === 'released').length} выпущено`);
