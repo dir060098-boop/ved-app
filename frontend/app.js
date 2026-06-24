@@ -12494,12 +12494,17 @@ function shpUpdateKPIs() {
   set('shp-kpi-customs',  live.filter(s => s.status === 'customs').length);
   set('shp-kpi-delivered',live.filter(s => s.status === 'delivered').length);
 
-  // Total USD value (live only — archived excluded)
-  const total = live.reduce((s, x) => s + (parseFloat(x.total_value) || 0), 0);
-  set('shp-kpi-value', total >= 1000000
-    ? (total/1000000).toFixed(1) + 'M'
-    : total >= 1000 ? (total/1000).toFixed(0) + 'K'
-    : fmtNum(total));
+  // Сумма по валютам (live, без архива). Раньше суммировалось без учёта валюты
+  // и подписывалось USD — для CNY/EUR это было неверно.
+  const byCur = {};
+  live.forEach(x => { const c = (x.currency || '—'); byCur[c] = (byCur[c] || 0) + (parseFloat(x.total_value) || 0); });
+  const fmtShort = n => n >= 1e6 ? (n/1e6).toFixed(1) + 'M' : n >= 1000 ? (n/1000).toFixed(0) + 'K' : fmtNum(n);
+  const curs = Object.keys(byCur).sort((a, b) => byCur[b] - byCur[a]);
+  let valStr;
+  if (curs.length === 0)      valStr = '0';
+  else if (curs.length === 1) valStr = fmtShort(byCur[curs[0]]) + ' ' + curs[0];
+  else                        valStr = curs.slice(0, 2).map(c => fmtShort(byCur[c]) + ' ' + c).join(' · ') + (curs.length > 2 ? ' …' : '');
+  set('shp-kpi-value', valStr);
 }
 
 /* ── Load / Filter / Render list ────────────────────────────────── */
