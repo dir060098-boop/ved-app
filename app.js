@@ -14147,12 +14147,57 @@ function _docLogToShipment(shipId, docType, docLabel) {
    NB: base checklist lives in _shpRenderDocs_base (renamed original).
    Не захватываем shpRenderDocs в переменную — из-за хойстинга function-объявлений
    это указывало бы на саму себя и давало бесконечную рекурсию. */
+// Блок «Договор и спецификация» для вкладки Документы поставки.
+// Связь: поставка.contract_id → договор.num ← спецификация.contractNum (+ матч по поставщику).
+function _shpContractSpecBlock(s) {
+  const norm = x => String(x || '').toLowerCase().replace(/[.,"'`()\-]/g, ' ').replace(/\s+/g, ' ').trim();
+  let regCts = []; try { regCts = DB_contracts.all(); } catch (e) {}
+  let legacy = []; try { legacy = JSON.parse(localStorage.getItem('ved_contracts') || '[]'); } catch (e) {}
+  const byNum = {}; [...legacy, ...regCts].forEach(c => { if (c && c.num) byNum[c.num] = c; });
+  const supName = (s.supplier_id && typeof supplierById === 'function') ? (supplierById(s.supplier_id)?.name || '') : '';
+  const supMatch = c => { const a = norm(c.sellerName), b = norm(supName); return a && b && (a === b || a.includes(b) || b.includes(a)); };
+  let contract = s.contract_id ? byNum[s.contract_id] : null;
+  if (!contract && supName) contract = Object.values(byNum).find(supMatch) || null;
+  const ctNum = contract ? contract.num : (s.contract_id || '');
+
+  let specs = [];
+  try { specs = DB_specs_registry.all().filter(sp => ctNum && norm(sp.contractNum) === norm(ctNum)); } catch (e) {}
+  const specVal = specs.length ? specs.map(sp => sp.specNum || '(без номера)').join(', ') : '';
+
+  const line = (icon, title, value, openHtml) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:16px">${icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">${title}</div>
+        ${value ? `<div style="font-weight:700;font-size:12.5px">${value}</div>` : `<div style="font-size:12px;color:var(--text3)">не привязан</div>`}
+      </div>
+      ${openHtml}
+    </div>`;
+
+  const ctOpen = ctNum
+    ? `<button class="admin-action-btn" onclick="shpCloseDetail();showSection('contract')">Открыть →</button>`
+    : `<button class="admin-action-btn" onclick="shpCloseDetail();showSection('contract')">+ Договор</button>`;
+  const spOpen = specVal
+    ? `<button class="admin-action-btn" onclick="shpCloseDetail();showSection('spec')">Открыть →</button>`
+    : `<button class="admin-action-btn" onclick="siOpenPicker('${String(s.id)}','spec',null,null)">📐 → Спец.</button>`;
+
+  return `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">
+      <div style="font-weight:800;font-size:13px;margin-bottom:6px">📑 Договор и спецификация</div>
+      ${line('📝', 'Договор', ctNum ? (ctNum + (contract && contract.sellerName ? ' · ' + contract.sellerName : '')) : '', ctOpen)}
+      ${line('📐', 'Спецификация', specVal, spOpen)}
+    </div>`;
+}
+
 function shpRenderDocs(s) {
   _shpRenderDocs_base(s);   // render original checklist
 
   const sid  = String(s.id);
   const el   = document.getElementById('shpd-docs-content');
   if (!el) return;
+
+  // ── 📑 Договор и спецификация (авто-подтягивание по поставщику / № договора) ──
+  el.insertAdjacentHTML('afterbegin', _shpContractSpecBlock(s));
 
   // Find all saved docs linked to this shipment
   const invs  = DB_invoices.where(x => x.shipment_id === sid);
