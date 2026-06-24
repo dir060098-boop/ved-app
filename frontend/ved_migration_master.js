@@ -1153,7 +1153,7 @@ async function _shipsEnableApiReads() {
 
           // Merge: for each API row, inject embedded data from matching local record.
           // Keep the LOCAL id so all existing FK references (items, events, etc.) stay valid.
-          const merged = apiRows.map(apiRow => {
+          const apiMapped = apiRows.map(apiRow => {
             const local = localByNum[apiRow.shipment_number] || localById[apiRow.id] || null;
             const row   = _shipsApiToFrontend(apiRow, local);
             // Restore original local id if we found a match — avoids breaking FK chains.
@@ -1161,6 +1161,19 @@ async function _shipsEnableApiReads() {
             return row;
           });
 
+          // Сохранить ЛОКАЛЬНЫЕ поставки, которых ещё нет в бэкенде
+          // (напр. созданные из проформы) — иначе они затираются и исчезают.
+          const apiNums = new Set(apiRows.map(r => r.shipment_number));
+          const apiIds  = new Set(apiRows.map(r => String(r.id)));
+          const localOnly = [];
+          try {
+            const existing2 = JSON.parse(localStorage.getItem('ved_shipments') || '[]');
+            for (const s of existing2) {
+              if (!apiNums.has(s.shipment_number) && !apiIds.has(String(s.id))) localOnly.push(s);
+            }
+          } catch (_) {}
+
+          const merged = [...apiMapped, ...localOnly];
           localStorage.setItem('ved_shipments', JSON.stringify(merged));
           if (VED_API_CONFIG.debug) console.log(`[Ships] Загружено и слито ${merged.length} поставок из API`);
         }
