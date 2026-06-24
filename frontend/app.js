@@ -13517,11 +13517,31 @@ function shpOpenForm(id) {
     if (selBrk) selBrk.innerHTML = brkOpts;
   } catch(e) {}
 
-  // Populate contracts datalist
+  // Populate contracts datalist из РЕЕСТРА договоров (+ legacy ved_contracts),
+  // сопоставляя по поставщику. Если у поставки договор не указан, а у поставщика
+  // ровно один договор — подставляем его автоматически.
   try {
-    const cts = JSON.parse(localStorage.getItem('ved_contracts') || '[]');
-    const dl  = document.getElementById('shp-contracts-list');
-    if (dl) dl.innerHTML = cts.map(ct => `<option value="${ct.num}">`).join('');
+    let regCts = []; try { regCts = DB_contracts.all(); } catch(e) {}
+    let legacy = []; try { legacy = JSON.parse(localStorage.getItem('ved_contracts') || '[]'); } catch(e) {}
+    const byNum = {};
+    [...legacy, ...regCts].forEach(c => { if (c && c.num) byNum[c.num] = c; });
+    const allCts = Object.values(byNum);
+
+    const norm = x => String(x || '').toLowerCase().replace(/[.,"'`()-]/g, ' ').replace(/\s+/g, ' ').trim();
+    const supName = (s && s.supplier_id && typeof supplierById === 'function')
+      ? (supplierById(s.supplier_id)?.name || '') : '';
+    const matching = supName ? allCts.filter(c => {
+      const a = norm(c.sellerName), b = norm(supName);
+      return a && b && (a === b || a.includes(b) || b.includes(a));
+    }) : [];
+    const ordered = matching.length ? [...matching, ...allCts.filter(c => !matching.includes(c))] : allCts;
+
+    const dl = document.getElementById('shp-contracts-list');
+    if (dl) dl.innerHTML = ordered.map(c => `<option value="${c.num}">${(c.sellerName || '').replace(/"/g,'')}</option>`).join('');
+
+    // Автоподстановка договора, если у поставки он не задан
+    const cf = document.getElementById('shp-f-contract');
+    if (cf && !cf.value.trim() && matching.length === 1) cf.value = matching[0].num;
   } catch(e) {}
 
   document.getElementById('shp-form-bg').classList.add('open');
