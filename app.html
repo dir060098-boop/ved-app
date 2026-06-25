@@ -219,10 +219,16 @@
     <div class="nav-item nav-sub" onclick="showSection('deadlines')">
       <span class="nav-icon">⏰</span> Дедлайн-монитор
     </div>
+    <div class="nav-item nav-sub" onclick="showSection('freight')">
+      <span class="nav-icon">🚢</span> Тарифы фрахта
+    </div>
 
     <!-- ТАМОЖНЯ — порядок: сначала считаем, потом оформляем -->
     <div class="nav-sep"></div>
     <div class="nav-label">🛃 Таможня</div>
+    <div class="nav-item nav-sub" onclick="showSection('precalc')">
+      <span class="nav-icon">🧮</span> Предварительный расчёт
+    </div>
     <div class="nav-item nav-sub" onclick="showSection('calc')">
       <span class="nav-icon">🔢</span> Калькулятор пошлин
     </div>
@@ -1711,6 +1717,284 @@
       </div>
     </div>
 
+    <!-- FREIGHT RATES -->
+    <div id="section-freight" class="section">
+      <div class="section-title">Тарифы фрахта</div>
+      <div class="section-sub">Ставки по маршрутам · Порт отгрузки × Перевозчик × Тип контейнера</div>
+
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+        <button class="gen-btn" onclick="ftOpenForm()" style="margin:0;padding:8px 18px">
+          + Добавить тариф
+        </button>
+        <div id="ft-port-tabs" style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)">
+          <button class="ft-port-btn active" data-port="all" onclick="ftSetPort('all')">Все</button>
+          <button class="ft-port-btn" data-port="Shanghai"  onclick="ftSetPort('Shanghai')">Shanghai</button>
+          <button class="ft-port-btn" data-port="Nansha"    onclick="ftSetPort('Nansha')">Nansha</button>
+          <button class="ft-port-btn" data-port="Ningbo"    onclick="ftSetPort('Ningbo')">Ningbo</button>
+          <button class="ft-port-btn" data-port="Xiamen"    onclick="ftSetPort('Xiamen')">Xiamen</button>
+          <button class="ft-port-btn" data-port="Beijing"   onclick="ftSetPort('Beijing')">Beijing</button>
+        </div>
+        <div id="ft-stats" style="margin-left:auto;font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace"></div>
+      </div>
+
+      <div id="ft-list"></div>
+
+      <!-- Add / Edit form overlay -->
+      <div class="cat-form-bg" id="ft-form-bg">
+        <div class="cat-form-modal" style="max-width:620px">
+          <button class="pr-modal-close" onclick="ftCloseForm()">✕</button>
+          <div class="cat-form-title">
+            <span>🚢</span>
+            <span id="ft-form-title">Новый тариф</span>
+          </div>
+          <input type="hidden" id="ft-f-id">
+
+          <div class="form-grid cols-3">
+            <div class="field">
+              <label>Порт отгрузки <span style="color:var(--rust)">*</span></label>
+              <select id="ft-f-port">
+                <option value="Shanghai">Shanghai</option>
+                <option value="Nansha">Nansha (Guangzhou)</option>
+                <option value="Ningbo">Ningbo</option>
+                <option value="Xiamen">Xiamen</option>
+                <option value="Beijing">Beijing (Tianjin)</option>
+                <option value="Qingdao">Qingdao</option>
+                <option value="Shenzhen">Shenzhen</option>
+                <option value="Другой">Другой</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Перевозчик / линия</label>
+              <input id="ft-f-carrier" placeholder="COSCO, MSC, CMA CGM…">
+            </div>
+            <div class="field">
+              <label>Сервис (маршрут)</label>
+              <input id="ft-f-service" placeholder="AEX-4, Dragon…">
+            </div>
+
+            <div class="field">
+              <label>Тип контейнера <span style="color:var(--rust)">*</span></label>
+              <select id="ft-f-container">
+                <option value="20'">20' (TEU)</option>
+                <option value="40'">40' (FEU)</option>
+                <option value="40'HC">40'HC (High Cube)</option>
+                <option value="LCL">LCL (сборный)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Ставка <span style="color:var(--rust)">*</span></label>
+              <input id="ft-f-rate" type="number" min="0" step="1" placeholder="1850"
+                     style="font-family:'JetBrains Mono',monospace">
+            </div>
+            <div class="field">
+              <label>Валюта</label>
+              <select id="ft-f-currency">
+                <option value="USD">USD</option>
+                <option value="CNY">CNY</option>
+                <option value="EUR">EUR</option>
+                <option value="RUB">RUB</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>Дата вступления в силу</label>
+              <input id="ft-f-date" type="date">
+            </div>
+            <div class="field">
+              <label>Действует до</label>
+              <input id="ft-f-valid-until" type="date">
+            </div>
+            <div class="field">
+              <label>Компания</label>
+              <select id="ft-f-company">
+                <option value="ENDV">ENDV</option>
+                <option value="PBS">PBS</option>
+                <option value="">Общий</option>
+              </select>
+            </div>
+
+            <div class="field span3">
+              <label>Примечания</label>
+              <input id="ft-f-notes" placeholder="Условия, надбавки, дополнительные сборы…">
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="gen-btn" onclick="ftSave()" style="margin:0;padding:9px 22px">💾 Сохранить</button>
+            <button class="gen-btn secondary" onclick="ftCloseForm()" style="margin:0;padding:9px 18px;margin-left:auto">Отмена</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRE-CALCULATION MODULE -->
+    <div id="section-precalc" class="section">
+      <div class="section-title">Предварительный расчёт</div>
+      <div class="section-sub">Полная себестоимость поставки в ₽ · от FOB до склада</div>
+
+      <div style="display:flex;gap:20px;align-items:flex-start">
+
+        <!-- LEFT: Input form -->
+        <div style="flex:1;min-width:0">
+
+          <!-- Товары -->
+          <div class="card-block" style="margin-bottom:16px">
+            <div class="block-title">Товары (FOB)</div>
+            <table class="goods-table" id="pc-goods-table">
+              <thead><tr>
+                <th style="min-width:200px">Наименование</th>
+                <th style="width:60px">Кол-во</th>
+                <th style="width:80px">Цена</th>
+                <th style="width:55px">Валюта</th>
+                <th style="width:55px;text-align:right">Пошлина%</th>
+                <th style="width:45px;text-align:right">НДС%</th>
+                <th style="width:24px"></th>
+              </tr></thead>
+              <tbody id="pc-goods-body"></tbody>
+            </table>
+            <button class="add-row-btn" onclick="pcAddGoodsRow()" style="margin-top:8px">+ Добавить позицию</button>
+          </div>
+
+          <!-- Логистика -->
+          <div class="card-block" style="margin-bottom:16px">
+            <div class="block-title">Логистика (Freight)</div>
+            <div class="form-grid cols-3">
+              <div class="field">
+                <label>Порт отгрузки</label>
+                <select id="pc-port" onchange="pcAutoFillFreight()">
+                  <option value="">— выберите —</option>
+                  <option value="Shanghai">Shanghai</option>
+                  <option value="Nansha">Nansha</option>
+                  <option value="Ningbo">Ningbo</option>
+                  <option value="Xiamen">Xiamen</option>
+                  <option value="Beijing">Beijing</option>
+                  <option value="Qingdao">Qingdao</option>
+                  <option value="Shenzhen">Shenzhen</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Тип контейнера</label>
+                <select id="pc-container" onchange="pcAutoFillFreight()">
+                  <option value="20'">20'</option>
+                  <option value="40'">40'</option>
+                  <option value="40'HC">40'HC</option>
+                  <option value="LCL">LCL</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Перевозчик (авто)</label>
+                <input id="pc-carrier" placeholder="из реестра тарифов" readonly
+                       style="background:var(--surface2);color:var(--text3)">
+              </div>
+              <div class="field">
+                <label>Ставка фрахта</label>
+                <input id="pc-freight-rate" type="number" min="0" step="1" placeholder="0"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>Валюта фрахта</label>
+                <select id="pc-freight-currency" onchange="pcCalc()">
+                  <option value="USD">USD</option>
+                  <option value="CNY">CNY</option>
+                  <option value="EUR">EUR</option>
+                  <option value="RUB">RUB</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Страховка, % от FOB</label>
+                <input id="pc-insurance-pct" type="number" min="0" max="5" step="0.1" value="0.3"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+            </div>
+          </div>
+
+          <!-- Курсы валют -->
+          <div class="card-block" style="margin-bottom:16px">
+            <div class="block-title">Курсы валют к ₽</div>
+            <div class="form-grid cols-3">
+              <div class="field">
+                <label>USD → ₽</label>
+                <input id="pc-rate-usd" type="number" min="1" step="0.01" placeholder="90.00"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>CNY → ₽</label>
+                <input id="pc-rate-cny" type="number" min="1" step="0.01" placeholder="12.50"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>EUR → ₽</label>
+                <input id="pc-rate-eur" type="number" min="1" step="0.01" placeholder="98.00"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+            </div>
+            <div style="margin-top:8px">
+              <button class="add-row-btn" onclick="pcLoadRates()" style="font-size:11px">
+                ↻ Загрузить из реестра курсов
+              </button>
+            </div>
+          </div>
+
+          <!-- Расходы в РФ -->
+          <div class="card-block" style="margin-bottom:16px">
+            <div class="block-title">Расходы в РФ</div>
+            <div class="form-grid cols-3">
+              <div class="field">
+                <label>Брокер, ₽</label>
+                <input id="pc-broker" type="number" min="0" step="100" value="35000"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>СВХ (склад врем. хранения), ₽</label>
+                <input id="pc-svh" type="number" min="0" step="100" value="15000"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>Банковская комиссия, %</label>
+                <input id="pc-bank-pct" type="number" min="0" max="5" step="0.1" value="1.5"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>Сертификация, ₽</label>
+                <input id="pc-cert" type="number" min="0" step="1000" value="0"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>Доп. расходы (ОГ/спец.), ₽</label>
+                <input id="pc-dg-cost" type="number" min="0" step="1000" value="0"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>Маркировка (Честный Знак), ₽</label>
+                <input id="pc-marking" type="number" min="0" step="1000" value="0"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /LEFT -->
+
+        <!-- RIGHT: Result panel -->
+        <div style="width:340px;flex-shrink:0;position:sticky;top:72px">
+          <div class="card-block" id="pc-result-panel">
+            <div class="block-title">Расчёт себестоимости</div>
+            <div id="pc-result-body" style="font-size:13px;color:var(--text3);text-align:center;padding:24px 0">
+              Заполните форму слева — расчёт обновится автоматически
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+            <button class="gen-btn" onclick="pcSave()" style="margin:0;padding:8px 18px;flex:1">
+              💾 Сохранить расчёт
+            </button>
+            <button class="gen-btn secondary" onclick="pcReset()" style="margin:0;padding:8px 14px">
+              ↺ Сбросить
+            </button>
+          </div>
+        </div><!-- /RIGHT -->
+
+      </div>
+    </div>
+
     <!-- CUSTOMS CALCULATOR -->
     <div id="section-calc" class="section">
       <div class="section-title">Калькулятор пошлин</div>
@@ -2969,7 +3253,7 @@
             <select id="cat-f-supplier"></select>
           </div>
           <div class="field">
-            <label>Типовая цена (USD)</label>
+            <label>Типовая цена</label>
             <input id="cat-f-price" type="number" min="0" step="0.01" placeholder="0.00">
           </div>
           <div class="field">
@@ -2981,6 +3265,58 @@
               <option value="CNY">CNY ¥</option>
               <option value="RUB">RUB ₽</option>
             </select>
+          </div>
+
+          <!-- Customs & Compliance -->
+          <div class="field span3" style="padding-top:4px">
+            <div class="block-title" style="margin:4px 0 0">Таможня и регуляторика</div>
+          </div>
+          <div class="field">
+            <label>Ставка ввозной пошлины, %</label>
+            <input id="cat-f-duty" type="number" min="0" max="100" step="0.1" placeholder="0.0"
+                   style="font-family:'JetBrains Mono',monospace">
+          </div>
+          <div class="field">
+            <label>Ставка НДС, %</label>
+            <select id="cat-f-vat">
+              <option value="22">22% (стандарт)</option>
+              <option value="20">20%</option>
+              <option value="10">10% (льготная)</option>
+              <option value="0">0% (нулевая)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Тип сертификации</label>
+            <select id="cat-f-cert-type">
+              <option value="">— не требуется —</option>
+              <option value="ТР ТС">ТР ТС</option>
+              <option value="СГР">СГР</option>
+              <option value="ГОСТ Р">ГОСТ Р</option>
+              <option value="ДС">Добровольная (ДС)</option>
+              <option value="Прочее">Прочее</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Ориент. стоимость сертификации, ₽</label>
+            <input id="cat-f-cert-cost" type="number" min="0" step="1000" placeholder="0"
+                   style="font-family:'JetBrains Mono',monospace">
+          </div>
+          <div class="field" style="justify-content:flex-end;padding-bottom:4px">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <label class="check-label">
+                <input type="checkbox" id="cat-f-dg">
+                <span>⚠️ Опасный груз (DG)</span>
+              </label>
+              <label class="check-label">
+                <input type="checkbox" id="cat-f-honest-mark">
+                <span>🏷 Честный Знак</span>
+              </label>
+            </div>
+          </div>
+          <div class="field">
+            <label>Доп. затраты при ОГ, ₽</label>
+            <input id="cat-f-dg-cost" type="number" min="0" step="1000" placeholder="0"
+                   style="font-family:'JetBrains Mono',monospace">
           </div>
 
           <div class="field span3">

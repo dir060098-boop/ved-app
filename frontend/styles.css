@@ -372,6 +372,20 @@
 
   /* ── GLOBAL TABLE POLISH ── */
   table { border-collapse: collapse; width: 100%; }
+
+  /* Numeric cells: right-align, monospace, tabular figures */
+  td.num, th.num {
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    white-space: nowrap;
+  }
+  th.num { color: var(--text2); }
+  td.num { color: var(--text); }
+  td.num.accent { color: var(--co-accent); font-weight: 600; }
+  td.num.muted  { color: var(--text3); }
+
   thead th {
     background: var(--surface2);
     color: var(--text2);
@@ -1647,7 +1661,6 @@
     color: var(--co-accent);
     margin-bottom: 4px;
   }
-  .reg-card.company-PBS .reg-po { color: #D64545; }
   .reg-supplier {
     font-size: 12px;
     color: var(--text2);
@@ -1816,17 +1829,18 @@
 
   .pr-badge {
     display:inline-flex;align-items:center;gap:4px;
-    padding:2px 10px;border-radius:12px;font-size:10px;
+    padding:2px 10px;border-radius:20px;font-size:10px;
     font-family:'JetBrains Mono',monospace;font-weight:600;white-space:nowrap;
+    border:1px solid transparent;
   }
-  .pr-badge.draft      { background:#f3f4f6;color:#6b7280; }
-  .pr-badge.submitted  { background:#eff6ff;color:#2563eb; }
-  .pr-badge.approved   { background:#f0fdf4;color:#16a34a; }
-  .pr-badge.rejected   { background:#fef2f2;color:#dc2626; }
-  .pr-badge.rfq_created{ background:#fdf4ff;color:#9333ea; }
-  .pr-badge.ordered    { background:#fff7ed;color:#ea580c; }
-  .pr-badge.delivered  { background:#f0fdf4;color:#15803d;font-style:italic; }
-  .pr-badge.cancelled  { background:#f9fafb;color:#9ca3af;text-decoration:line-through; }
+  .pr-badge.draft      { background:#f3f4f6;color:#6b7280;border-color:rgba(107,114,128,0.30); }
+  .pr-badge.submitted  { background:#eff6ff;color:#2563eb;border-color:rgba(37,99,235,0.30); }
+  .pr-badge.approved   { background:#f0fdf4;color:#16a34a;border-color:rgba(22,163,74,0.30); }
+  .pr-badge.rejected   { background:#fef2f2;color:#dc2626;border-color:rgba(220,38,38,0.30); }
+  .pr-badge.rfq_created{ background:#fdf4ff;color:#9333ea;border-color:rgba(147,51,234,0.30); }
+  .pr-badge.ordered    { background:#fff7ed;color:#ea580c;border-color:rgba(234,88,12,0.30); }
+  .pr-badge.delivered  { background:#f0fdf4;color:#15803d;border-color:rgba(21,128,61,0.30);font-style:italic; }
+  .pr-badge.cancelled  { background:#f9fafb;color:#9ca3af;border-color:rgba(156,163,175,0.25);text-decoration:line-through; }
 
   .pr-priority { display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0; }
   .pr-priority.low    { background:#9ca3af; }
@@ -1974,14 +1988,15 @@
 
   .rfqs-badge {
     display:inline-flex;align-items:center;
-    padding:2px 10px;border-radius:12px;font-size:10px;
+    padding:2px 10px;border-radius:20px;font-size:10px;
     font-family:'JetBrains Mono',monospace;font-weight:600;white-space:nowrap;
+    border:1px solid transparent;
   }
-  .rfqs-badge.draft     { background:#f3f4f6;color:#6b7280; }
-  .rfqs-badge.sent      { background:#eff6ff;color:#2563eb; }
-  .rfqs-badge.received  { background:#fdf4ff;color:#9333ea; }
-  .rfqs-badge.analysed  { background:#fff7ed;color:#ea580c; }
-  .rfqs-badge.closed    { background:#f0fdf4;color:#16a34a; }
+  .rfqs-badge.draft     { background:#f3f4f6;color:#6b7280;border-color:rgba(107,114,128,0.30); }
+  .rfqs-badge.sent      { background:#eff6ff;color:#2563eb;border-color:rgba(37,99,235,0.30); }
+  .rfqs-badge.received  { background:#fdf4ff;color:#9333ea;border-color:rgba(147,51,234,0.30); }
+  .rfqs-badge.analysed  { background:#fff7ed;color:#ea580c;border-color:rgba(234,88,12,0.30); }
+  .rfqs-badge.closed    { background:#f0fdf4;color:#16a34a;border-color:rgba(22,163,74,0.30); }
 
   /* --- Detail modal --- */
   .rfqs-detail-bg {
@@ -4323,3 +4338,75 @@
     color: var(--co-accent);
     text-decoration: underline;
   }
+
+  /* ── FREIGHT RATES ── */
+  .ft-port-btn {
+    background: none;
+    border: none;
+    padding: 6px 14px;
+    font-size: 11px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--text3);
+    transition: background 0.12s, color 0.12s;
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .ft-port-btn:last-child { border-right: none; }
+  .ft-port-btn:hover { background: var(--surface2); color: var(--text2); }
+  .ft-port-btn.active {
+    background: var(--co-accent-light);
+    color: var(--co-accent);
+    font-weight: 600;
+  }
+
+  .ft-table { width: 100%; border-collapse: collapse; }
+  .ft-table thead th {
+    background: var(--surface2);
+    padding: 9px 14px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text3);
+    font-weight: 600;
+    font-family: 'Inter', sans-serif;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+  .ft-table thead th.num { text-align: right; }
+  .ft-table tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border2);
+    font-size: 12.5px;
+    color: var(--text);
+    vertical-align: middle;
+  }
+  .ft-table tbody tr:hover td { background: var(--surface2); }
+  .ft-table tbody tr:last-child td { border-bottom: none; }
+  .ft-rate-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--co-accent);
+    text-align: right;
+  }
+  .ft-container-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    white-space: nowrap;
+  }
+  .ft-port-tag {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--navy);
+  }
+  .ft-expired { opacity: 0.5; }
+  .ft-valid-soon td:first-child { border-left: 3px solid var(--gold); }

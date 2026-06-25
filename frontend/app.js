@@ -57,6 +57,8 @@ function showSection(name) {
   });
   if (name === 'admin') renderAdminTable();
   if (name === 'deadlines') renderDeadlines();
+  if (name === 'freight') ftLoad();
+  if (name === 'precalc') pcInit();
   if (name === 'customs') tplInit();
   if (name === 'suppliers') { renderSuppliers(); _spRefreshFromApi(); }
   if (name === 'currency') fxInit();
@@ -1588,9 +1590,10 @@ const PIPE_STAGES = [
   { key: 'payment',   label: 'Оплата\nпроизведена', icon: '💳' },
   { key: 'production',label: 'Товар\nготов',        icon: '🏭' },
   { key: 'pickup',    label: 'Забор\nгруза',         icon: '🚛' },
-  { key: 'export',    label: 'Экспортная\nтаможня', icon: '🇮🇳' },
+  { key: 'export',    label: 'Экспортная\nтаможня', icon: '🇨🇳' },
   { key: 'transit',   label: 'В пути\n(транзит)',    icon: '🚢' },
   { key: 'arrival',   label: 'Прибытие\nв РФ',       icon: '⚓' },
+  { key: 'svh',       label: 'СВХ',                  icon: '🏗️' },
   { key: 'customs',   label: 'Импортная\nтаможня',  icon: '🛃' },
   { key: 'delivery',  label: 'Доставка\nна склад',   icon: '🏠' },
 ];
@@ -7440,6 +7443,467 @@ function plApplyExtracted(dataStr) {
 }
 
 // ════════════════════════════════════════════
+// ── PRE-CALCULATION MODULE ──
+// ════════════════════════════════════════════
+
+/* Russian customs clearance fee (таможенные сборы за таможенное оформление)
+   based on customs value in RUB. Table per постановление Правительства РФ. */
+const PC_CUSTOMS_FEE_TABLE = [
+  [      200_000,    775],
+  [      450_000,  1_550],
+  [    1_200_000,  3_100],
+  [    2_500_000,  8_530],
+  [    5_000_000, 12_000],
+  [   10_000_000, 17_000],
+  [   30_000_000, 22_000],
+  [Infinity,      22_500],
+];
+
+function pcCustomsFee(customsValueRub) {
+  for (const [limit, fee] of PC_CUSTOMS_FEE_TABLE) {
+    if (customsValueRub <= limit) return fee;
+  }
+  return 22_500;
+}
+
+let _pcGoodsRows = [];  // [{name, qty, price, currency, duty_pct, vat_pct}]
+
+function pcInit() {
+  if (_pcGoodsRows.length === 0) pcAddGoodsRow();
+  pcRenderGoodsTable();
+  pcLoadRates();
+}
+
+function pcAddGoodsRow(item) {
+  _pcGoodsRows.push({
+    name:      item?.name      || '',
+    qty:       item?.qty       || 1,
+    price:     item?.price     || 0,
+    currency:  item?.currency  || 'USD',
+    duty_pct:  item?.duty_pct  != null ? item.duty_pct : 0,
+    vat_pct:   item?.vat_pct   != null ? item.vat_pct  : 22,
+  });
+  pcRenderGoodsTable();
+  pcCalc();
+}
+
+function pcRemoveGoodsRow(idx) {
+  _pcGoodsRows.splice(idx, 1);
+  pcRenderGoodsTable();
+  pcCalc();
+}
+
+function pcGoodsChange(idx, field, val) {
+  if (!_pcGoodsRows[idx]) return;
+  _pcGoodsRows[idx][field] = (['qty','price','duty_pct','vat_pct'].includes(field)) ? parseFloat(val)||0 : val;
+  pcCalc();
+}
+
+function pcRenderGoodsTable() {
+  const tbody = document.getElementById('pc-goods-body');
+  if (!tbody) return;
+  tbody.innerHTML = _pcGoodsRows.map((r, i) => `
+    <tr>
+      <td><input value="${r.name}" placeholder="Наименование товара"
+                 oninput="pcGoodsChange(${i},'name',this.value)"
+                 style="width:100%;font-size:12px"></td>
+      <td><input type="number" value="${r.qty}" min="1" step="1"
+                 oninput="pcGoodsChange(${i},'qty',this.value)"
+                 style="width:100%;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px"></td>
+      <td><input type="number" value="${r.price}" min="0" step="0.01"
+                 oninput="pcGoodsChange(${i},'price',this.value)"
+                 style="width:100%;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px"></td>
+      <td><select oninput="pcGoodsChange(${i},'currency',this.value)" style="font-size:11px;padding:4px 4px">
+            <option value="USD" ${r.currency==='USD'?'selected':''}>USD</option>
+            <option value="CNY" ${r.currency==='CNY'?'selected':''}>CNY</option>
+            <option value="EUR" ${r.currency==='EUR'?'selected':''}>EUR</option>
+            <option value="RUB" ${r.currency==='RUB'?'selected':''}>RUB</option>
+          </select></td>
+      <td><input type="number" value="${r.duty_pct}" min="0" max="100" step="0.1"
+                 oninput="pcGoodsChange(${i},'duty_pct',this.value)"
+                 style="width:100%;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px"></td>
+      <td><input type="number" value="${r.vat_pct}" min="0" max="22" step="1"
+                 oninput="pcGoodsChange(${i},'vat_pct',this.value)"
+                 style="width:100%;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px"></td>
+      <td><button class="del-btn" onclick="pcRemoveGoodsRow(${i})" title="Удалить">×</button></td>
+    </tr>`).join('');
+}
+
+function pcAutoFillFreight() {
+  const port      = document.getElementById('pc-port')?.value;
+  const container = document.getElementById('pc-container')?.value;
+  if (!port || !container) return;
+  const rates = ftGetAll().filter(r => r.port === port && r.container === container);
+  if (!rates.length) return;
+  // pick the most recent effective rate
+  rates.sort((a,b) => (b.effective_date||'').localeCompare(a.effective_date||''));
+  const best = rates[0];
+  const rateEl    = document.getElementById('pc-freight-rate');
+  const curEl     = document.getElementById('pc-freight-currency');
+  const carrierEl = document.getElementById('pc-carrier');
+  if (rateEl)    rateEl.value    = best.rate;
+  if (curEl)     curEl.value     = best.currency || 'USD';
+  if (carrierEl) carrierEl.value = [best.carrier, best.service].filter(Boolean).join(' / ') || '—';
+  pcCalc();
+}
+
+function pcLoadRates() {
+  // Pull latest rates from the ved_currency_rates store
+  try {
+    const rates = JSON.parse(localStorage.getItem('ved_currency_rates') || '[]');
+    const latest = {};
+    rates.forEach(r => {
+      const key = r.currency;
+      if (!latest[key] || r.date > latest[key].date) latest[key] = r;
+    });
+    const usdEl = document.getElementById('pc-rate-usd');
+    const cnyEl = document.getElementById('pc-rate-cny');
+    const eurEl = document.getElementById('pc-rate-eur');
+    if (usdEl && latest['USD']) usdEl.value = parseFloat(latest['USD'].rate).toFixed(2);
+    if (cnyEl && latest['CNY']) cnyEl.value = parseFloat(latest['CNY'].rate).toFixed(2);
+    if (eurEl && latest['EUR']) eurEl.value = parseFloat(latest['EUR'].rate).toFixed(2);
+    pcCalc();
+    if (Object.keys(latest).length) showToast('✅ Курсы загружены из реестра');
+    else showToast('ℹ️ Курсы не найдены в реестре — введите вручную', 'warn');
+  } catch(e) {}
+}
+
+function pcGetRate(currency) {
+  const map = {
+    USD: parseFloat(document.getElementById('pc-rate-usd')?.value) || 90,
+    CNY: parseFloat(document.getElementById('pc-rate-cny')?.value) || 12.5,
+    EUR: parseFloat(document.getElementById('pc-rate-eur')?.value) || 98,
+    RUB: 1,
+  };
+  return map[currency] || 1;
+}
+
+function pcFmtRub(n) {
+  if (!isFinite(n) || n === 0) return '—';
+  return Math.round(n).toLocaleString('ru-RU') + ' ₽';
+}
+
+function pcCalc() {
+  const resultEl = document.getElementById('pc-result-body');
+  if (!resultEl) return;
+
+  // ── 1. Стоимость товаров FOB (RUB) ──
+  let goodsRub = 0;
+  let totalQty = 0;
+  let weightedDutySum = 0;
+  let weightedVatSum  = 0;
+
+  _pcGoodsRows.forEach(r => {
+    const lineUsd = (r.qty || 0) * (r.price || 0);
+    const lineRub = lineUsd * pcGetRate(r.currency);
+    goodsRub      += lineRub;
+    totalQty      += (r.qty || 0);
+    weightedDutySum += lineRub * ((r.duty_pct || 0) / 100);
+    weightedVatSum  += (r.vat_pct || 22);
+  });
+  const avgVatPct = _pcGoodsRows.length ? weightedVatSum / _pcGoodsRows.length : 22;
+
+  // ── 2. Страховка ──
+  const insurancePct = parseFloat(document.getElementById('pc-insurance-pct')?.value) || 0;
+  const insuranceRub = goodsRub * (insurancePct / 100);
+
+  // ── 3. Фрахт ──
+  const freightRate     = parseFloat(document.getElementById('pc-freight-rate')?.value) || 0;
+  const freightCurrency = document.getElementById('pc-freight-currency')?.value || 'USD';
+  const freightRub      = freightRate * pcGetRate(freightCurrency);
+
+  // ── 4. Таможенная стоимость (CIF) ──
+  const customsValueRub = goodsRub + insuranceRub + freightRub;
+
+  // ── 5. Пошлина (по каждой строке, взвешенно) ──
+  const dutyRub = weightedDutySum;  // уже рассчитана выше
+
+  // ── 6. Таможенные сборы ──
+  const customsFee = pcCustomsFee(customsValueRub);
+
+  // ── 7. НДС (база: таможенная стоимость + пошлина + таможенный сбор) ──
+  const vatBase = customsValueRub + dutyRub + customsFee;
+  const vatRub  = vatBase * (avgVatPct / 100);
+
+  // ── 8. Прочие расходы ──
+  const bankPct    = parseFloat(document.getElementById('pc-bank-pct')?.value) || 0;
+  const bankRub    = goodsRub * (bankPct / 100);
+  const brokerRub  = parseFloat(document.getElementById('pc-broker')?.value) || 0;
+  const svhRub     = parseFloat(document.getElementById('pc-svh')?.value) || 0;
+  const certRub    = parseFloat(document.getElementById('pc-cert')?.value) || 0;
+  const dgRub      = parseFloat(document.getElementById('pc-dg-cost')?.value) || 0;
+  const markingRub = parseFloat(document.getElementById('pc-marking')?.value) || 0;
+
+  // ── 9. ИТОГО ──
+  const totalRub = goodsRub + insuranceRub + freightRub + dutyRub + customsFee + vatRub +
+                   bankRub + brokerRub + svhRub + certRub + dgRub + markingRub;
+
+  const costPerUnit = totalQty > 0 ? totalRub / totalQty : 0;
+
+  if (goodsRub === 0) {
+    resultEl.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text3)">
+      Заполните товары и курсы валют — расчёт обновится автоматически
+    </div>`;
+    return;
+  }
+
+  // ── Go/No-Go: если НДС+пошлина > 40% от товаров → предупреждение ──
+  const taxLoad = ((dutyRub + vatRub) / goodsRub) * 100;
+  const goNoGo = taxLoad > 50 ? 'danger' : taxLoad > 30 ? 'warn' : 'ok';
+  const goIcon = goNoGo === 'ok' ? '✅' : goNoGo === 'warn' ? '⚠️' : '🔴';
+  const goColor = goNoGo === 'ok' ? 'var(--green)' : goNoGo === 'warn' ? 'var(--gold)' : 'var(--red)';
+
+  const row = (lbl, val, bold, accent) => `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;
+                padding:5px 0;border-bottom:1px solid var(--border2)">
+      <span style="font-size:12px;color:var(--text3)">${lbl}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:${bold?'13':'12'}px;
+                   font-weight:${bold?700:500};color:${accent||'var(--text)'}">${pcFmtRub(val)}</span>
+    </div>`;
+
+  resultEl.innerHTML = `
+    ${row('Стоимость товаров (FOB)', goodsRub)}
+    ${insuranceRub > 0 ? row('Страховка '+insurancePct+'%', insuranceRub) : ''}
+    ${row('Фрахт', freightRub)}
+    <div style="padding:4px 0;font-size:10px;font-family:\'JetBrains Mono\',monospace;
+                color:var(--text3);border-bottom:1px dashed var(--border2)">
+      Таможенная стоимость (CIF): ${pcFmtRub(customsValueRub)}
+    </div>
+    ${row('Ввозная пошлина', dutyRub)}
+    ${row('Таможенный сбор', customsFee)}
+    ${row('НДС '+Math.round(avgVatPct)+'%', vatRub)}
+    ${row('Брокер', brokerRub)}
+    ${row('СВХ', svhRub)}
+    ${row('Банковская комиссия '+bankPct+'%', bankRub)}
+    ${certRub > 0 ? row('Сертификация', certRub) : ''}
+    ${dgRub    > 0 ? row('Доп. расходы (ОГ)', dgRub) : ''}
+    ${markingRub > 0 ? row('Маркировка', markingRub) : ''}
+
+    <div style="display:flex;justify-content:space-between;align-items:baseline;
+                padding:10px 0 6px;margin-top:4px;border-top:2px solid var(--text)">
+      <span style="font-size:13px;font-weight:700;color:var(--text)">ИТОГО</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:800;
+                   color:var(--co-accent)">${pcFmtRub(totalRub)}</span>
+    </div>
+
+    ${costPerUnit > 0 ? `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;
+                padding:4px 0 10px;border-bottom:1px solid var(--border)">
+      <span style="font-size:11px;color:var(--text3)">Себестоимость / ед.</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;
+                   color:var(--text)">${pcFmtRub(costPerUnit)}</span>
+    </div>` : ''}
+
+    <div style="margin-top:12px;padding:10px 14px;border-radius:8px;
+                background:${goNoGo==='ok'?'rgba(31,122,99,0.07)':goNoGo==='warn'?'rgba(196,148,58,0.09)':'rgba(214,69,69,0.08)'};
+                border:1px solid ${goColor};display:flex;align-items:center;gap:8px">
+      <span style="font-size:18px">${goIcon}</span>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:${goColor}">
+          ${goNoGo==='ok'?'Нагрузка приемлема':goNoGo==='warn'?'Высокая налоговая нагрузка':'Критическая нагрузка'}
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">
+          Пошлина + НДС: ${Math.round(taxLoad)}% от стоимости товаров
+        </div>
+      </div>
+    </div>`;
+}
+
+function pcReset() {
+  _pcGoodsRows = [];
+  pcAddGoodsRow();
+  ['pc-port','pc-container','pc-freight-rate','pc-carrier',
+   'pc-broker','pc-svh','pc-cert','pc-dg-cost','pc-marking'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = el.tagName==='SELECT' ? el.options[0]?.value||'' : '';
+  });
+  document.getElementById('pc-bank-pct') && (document.getElementById('pc-bank-pct').value = '1.5');
+  document.getElementById('pc-insurance-pct') && (document.getElementById('pc-insurance-pct').value = '0.3');
+  document.getElementById('pc-broker') && (document.getElementById('pc-broker').value = '35000');
+  document.getElementById('pc-svh')    && (document.getElementById('pc-svh').value    = '15000');
+  const res = document.getElementById('pc-result-body');
+  if (res) res.innerHTML = '<div style="text-align:center;padding:24px 0;color:var(--text3)">Заполните форму слева — расчёт обновится автоматически</div>';
+  pcLoadRates();
+}
+
+function pcSave() {
+  const data = {
+    id: 'pc-' + Date.now(),
+    date: new Date().toISOString().slice(0,10),
+    goods: _pcGoodsRows.slice(),
+    port: document.getElementById('pc-port')?.value,
+    container: document.getElementById('pc-container')?.value,
+    freight_rate: parseFloat(document.getElementById('pc-freight-rate')?.value)||0,
+    freight_currency: document.getElementById('pc-freight-currency')?.value,
+    rate_usd: parseFloat(document.getElementById('pc-rate-usd')?.value)||0,
+    rate_cny: parseFloat(document.getElementById('pc-rate-cny')?.value)||0,
+    rate_eur: parseFloat(document.getElementById('pc-rate-eur')?.value)||0,
+    broker: parseFloat(document.getElementById('pc-broker')?.value)||0,
+    svh: parseFloat(document.getElementById('pc-svh')?.value)||0,
+    bank_pct: parseFloat(document.getElementById('pc-bank-pct')?.value)||0,
+    cert: parseFloat(document.getElementById('pc-cert')?.value)||0,
+    dg_cost: parseFloat(document.getElementById('pc-dg-cost')?.value)||0,
+    marking: parseFloat(document.getElementById('pc-marking')?.value)||0,
+    company: activeCompany,
+  };
+  try {
+    const saved = JSON.parse(localStorage.getItem('ved_precalc_saved')||'[]');
+    saved.unshift(data);
+    if (saved.length > 50) saved.length = 50;
+    localStorage.setItem('ved_precalc_saved', JSON.stringify(saved));
+    showToast('✅ Расчёт сохранён');
+  } catch(e) {}
+}
+
+// ════════════════════════════════════════════
+// ── FREIGHT RATES REGISTRY ──
+// ════════════════════════════════════════════
+
+let _ftPort = 'all';
+const FT_STORE = 'ved_freight_rates';
+
+function ftLoad() {
+  ftRenderList();
+}
+
+function ftGetAll() {
+  try { return JSON.parse(localStorage.getItem(FT_STORE) || '[]'); } catch(e) { return []; }
+}
+function ftSaveAll(list) {
+  try { localStorage.setItem(FT_STORE, JSON.stringify(list)); } catch(e) {}
+}
+
+function ftSetPort(port) {
+  _ftPort = port;
+  document.querySelectorAll('.ft-port-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.port === port);
+  });
+  ftRenderList();
+}
+
+function ftOpenForm(id) {
+  const all = ftGetAll();
+  const r = id ? all.find(x => String(x.id) === String(id)) : null;
+  document.getElementById('ft-form-title').textContent = r ? 'Редактировать тариф' : 'Новый тариф';
+  document.getElementById('ft-f-id').value         = r?.id || '';
+  document.getElementById('ft-f-port').value        = r?.port       || 'Shanghai';
+  document.getElementById('ft-f-carrier').value     = r?.carrier    || '';
+  document.getElementById('ft-f-service').value     = r?.service    || '';
+  document.getElementById('ft-f-container').value   = r?.container  || "20'";
+  document.getElementById('ft-f-rate').value        = r?.rate       || '';
+  document.getElementById('ft-f-currency').value    = r?.currency   || 'USD';
+  document.getElementById('ft-f-date').value        = r?.effective_date || new Date().toISOString().slice(0,10);
+  document.getElementById('ft-f-valid-until').value = r?.valid_until || '';
+  document.getElementById('ft-f-company').value     = r?.company    || activeCompany;
+  document.getElementById('ft-f-notes').value       = r?.notes      || '';
+  document.getElementById('ft-form-bg').classList.add('open');
+}
+
+function ftCloseForm() {
+  document.getElementById('ft-form-bg').classList.remove('open');
+}
+
+function ftSave() {
+  const rate = parseFloat(document.getElementById('ft-f-rate').value);
+  if (!rate) { showToast('⚠️ Укажите ставку фрахта', 'warn'); return; }
+  const id = document.getElementById('ft-f-id').value;
+  const data = {
+    id:             id || ('ft-' + Date.now()),
+    port:           document.getElementById('ft-f-port').value,
+    carrier:        document.getElementById('ft-f-carrier').value.trim(),
+    service:        document.getElementById('ft-f-service').value.trim(),
+    container:      document.getElementById('ft-f-container').value,
+    rate,
+    currency:       document.getElementById('ft-f-currency').value,
+    effective_date: document.getElementById('ft-f-date').value,
+    valid_until:    document.getElementById('ft-f-valid-until').value || null,
+    company:        document.getElementById('ft-f-company').value,
+    notes:          document.getElementById('ft-f-notes').value.trim(),
+    updated_at:     new Date().toISOString(),
+  };
+  const all = ftGetAll();
+  if (id) {
+    const idx = all.findIndex(x => String(x.id) === String(id));
+    if (idx >= 0) all[idx] = data; else all.push(data);
+  } else {
+    all.push(data);
+  }
+  ftSaveAll(all);
+  ftCloseForm();
+  ftRenderList();
+  showToast('✅ Тариф сохранён');
+}
+
+function ftDelete(id) {
+  if (!confirm('Удалить тариф?')) return;
+  ftSaveAll(ftGetAll().filter(x => String(x.id) !== String(id)));
+  ftRenderList();
+  showToast('🗑 Тариф удалён');
+}
+
+function ftRenderList() {
+  const el = document.getElementById('ft-list');
+  if (!el) return;
+  const today = new Date().toISOString().slice(0,10);
+  let list = ftGetAll();
+  if (_ftPort !== 'all') list = list.filter(r => r.port === _ftPort);
+  // sort: port → container → rate
+  list.sort((a,b) => (a.port+a.container).localeCompare(b.port+b.container) || a.rate-b.rate);
+
+  const stats = document.getElementById('ft-stats');
+  if (stats) stats.textContent = list.length ? `${list.length} тариф${list.length===1?'':'ов'}` : '';
+
+  if (!list.length) {
+    el.innerHTML = `<div style="text-align:center;padding:60px 24px;border:1px dashed var(--border);
+        border-radius:10px;color:var(--text3)">
+      <div style="font-size:40px;margin-bottom:12px">🚢</div>
+      <div style="font-size:16px;font-weight:300;margin-bottom:8px">Тарифы не добавлены</div>
+      <div style="font-size:12px">Нажмите «+ Добавить тариф» чтобы внести ставки фрахта</div>
+    </div>`;
+    return;
+  }
+
+  const fmtDate = d => d ? new Date(d+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'2-digit'}) : '—';
+  const rows = list.map(r => {
+    const isExpired = r.valid_until && r.valid_until < today;
+    const isSoon    = !isExpired && r.valid_until && r.valid_until <= new Date(Date.now()+14*86400000).toISOString().slice(0,10);
+    const trCls = isExpired ? 'ft-expired' : isSoon ? 'ft-valid-soon' : '';
+    return `<tr class="${trCls}">
+      <td><span class="ft-port-tag">${r.port}</span></td>
+      <td>${r.carrier ? `<span style="font-weight:600">${r.carrier}</span>` : '<span style="color:var(--text3)">—</span>'}
+          ${r.service ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">${r.service}</div>` : ''}</td>
+      <td><span class="ft-container-badge">${r.container}</span></td>
+      <td class="ft-rate-val">${r.rate.toLocaleString('ru-RU')} <span style="font-size:10px;font-weight:400;color:var(--text3)">${r.currency}</span></td>
+      <td style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text3)">${fmtDate(r.effective_date)}</td>
+      <td style="font-size:11px;font-family:'JetBrains Mono',monospace;color:${isExpired?'var(--red)':isSoon?'var(--rust)':'var(--text3)'}">${r.valid_until ? fmtDate(r.valid_until)+(isExpired?' ✕':isSoon?' ⚡':'') : '—'}</td>
+      <td style="font-size:11px;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes||''}</td>
+      <td>
+        <div style="display:flex;gap:4px">
+          <button class="admin-action-btn" onclick="ftOpenForm('${r.id}')" style="font-size:10px">✎</button>
+          <button class="admin-action-btn danger" onclick="ftDelete('${r.id}')" style="font-size:10px">×</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow)">
+    <table class="ft-table">
+      <thead><tr>
+        <th>Порт</th>
+        <th>Перевозчик / Сервис</th>
+        <th>Контейнер</th>
+        <th class="num">Ставка</th>
+        <th>Актуально с</th>
+        <th>Действует до</th>
+        <th>Примечания</th>
+        <th style="width:70px"></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+// ════════════════════════════════════════════
 // ── MULTI-COMPANY SUPPORT ──
 // ════════════════════════════════════════════
 
@@ -7481,9 +7945,9 @@ const COMPANIES = {
     shortEn: 'Petrobalt Service LLC',
     fullName: 'Общество с ограниченной ответственностью «ПЕТРОБАЛТ СЕРВИС»',
     code: 'PBS',
-    color: '#D64545',
-    colorLight: 'rgba(214,69,69,0.10)',
-    colorBorder: 'rgba(214,69,69,0.30)',
+    color: '#1e5ba8',
+    colorLight: 'rgba(30,91,168,0.10)',
+    colorBorder: 'rgba(30,91,168,0.28)',
     buyerName: 'ООО «Петробалт Сервис» / Petrobalt Service LLC',
     buyerAddr: '238315, Российская Федерация, Калининградская область, мун. округ Зеленоградский, территория Индустриальный парк Храброво, ул. Инноваций, зд. 1 / Khrabrovo Industrial Park, Ulitsa Innovaciy zd.1, Zelenogradsk area, Kaliningrad region, 238315, Russia',
     buyerRep: 'Кирилюк Сергей Георгиевич / Sergey G. Kiriluk',
@@ -11786,6 +12250,11 @@ function catOpenDetail(id) {
     )
   ).slice(0,5);
 
+  const flagBadges = [
+    p.is_dangerous   ? `<span class="status-badge" style="border-color:rgba(214,69,69,0.35);color:#c0392b;background:rgba(214,69,69,0.07)">⚠️ ОГ / DG</span>` : '',
+    p.is_honest_mark ? `<span class="status-badge" style="border-color:rgba(37,99,235,0.35);color:#2563eb;background:rgba(37,99,235,0.07)">🏷 Честный Знак</span>` : '',
+  ].filter(Boolean).join(' ');
+
   const metaItems = [
     { label:'SKU',                value: p.sku||'—',                  cls:'mono accent' },
     { label:'ТН ВЭД (hs_code)',   value: p.hs_code||'—',              cls:'mono' },
@@ -11795,6 +12264,10 @@ function catOpenDetail(id) {
     { label:'Масса брутто, кг',   value: p.weight_gross ? p.weight_gross+' кг' : '—', cls:'mono' },
     { label:'Объём, м³',          value: p.volume ? p.volume+' м³' : '—',  cls:'mono' },
     { label:'Цена (типовая)',      value: p.price ? fmtNum(p.price)+' '+(p.currency||'') : '—', cls:'mono accent' },
+    { label:'Пошлина ввозная',    value: p.duty_pct != null ? p.duty_pct+'%' : '—', cls:'mono' },
+    { label:'Ставка НДС',         value: p.vat_pct  != null ? p.vat_pct+'%'  : '22%', cls:'mono' },
+    { label:'Сертификация',       value: p.cert_type || '—', cls:'' },
+    { label:'Стоимость серт., ₽', value: p.cert_cost ? fmtNum(p.cert_cost)+' ₽' : '—', cls:'mono' },
   ].map(m => `<div class="cat-meta-item">
     <div class="cat-meta-label">${m.label}</div>
     <div class="cat-meta-value ${m.cls}">${m.value}</div>
@@ -11812,6 +12285,7 @@ function catOpenDetail(id) {
     <div class="cat-detail-sku">${p.sku||'—'}</div>
     <div class="cat-detail-name">${p.name||'—'}</div>
     ${p.name_ru ? `<div style="font-size:13px;color:var(--text3);margin-top:-10px;margin-bottom:16px">${p.name_ru}</div>` : ''}
+    ${flagBadges ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${flagBadges}</div>` : ''}
 
     <div class="cat-meta-grid">${metaItems}</div>
 
@@ -11896,6 +12370,13 @@ function catOpenForm(id) {
   document.getElementById('cat-f-weight-gross').value = p?.weight_gross || '';
   document.getElementById('cat-f-price').value     = p?.price          || '';
   document.getElementById('cat-f-currency').value  = p?.currency       || 'USD';
+  document.getElementById('cat-f-duty').value      = p?.duty_pct       != null ? p.duty_pct : '';
+  document.getElementById('cat-f-vat').value       = p?.vat_pct        != null ? String(p.vat_pct) : '22';
+  document.getElementById('cat-f-cert-type').value = p?.cert_type      || '';
+  document.getElementById('cat-f-cert-cost').value = p?.cert_cost      || '';
+  document.getElementById('cat-f-dg').checked      = !!(p?.is_dangerous);
+  document.getElementById('cat-f-honest-mark').checked = !!(p?.is_honest_mark);
+  document.getElementById('cat-f-dg-cost').value   = p?.dg_extra_cost  || '';
   document.getElementById('cat-f-notes').value     = p?.notes          || '';
 
   // Populate supplier dropdown
@@ -12126,6 +12607,13 @@ function catSave() {
     default_supplier_id: document.getElementById('cat-f-supplier').value || null,
     price:             parseFloat(document.getElementById('cat-f-price').value) || 0,
     currency:          document.getElementById('cat-f-currency').value,
+    duty_pct:          document.getElementById('cat-f-duty').value !== '' ? parseFloat(document.getElementById('cat-f-duty').value) : null,
+    vat_pct:           parseInt(document.getElementById('cat-f-vat').value, 10),
+    cert_type:         document.getElementById('cat-f-cert-type').value || null,
+    cert_cost:         parseFloat(document.getElementById('cat-f-cert-cost').value) || 0,
+    is_dangerous:      document.getElementById('cat-f-dg').checked,
+    dg_extra_cost:     parseFloat(document.getElementById('cat-f-dg-cost').value) || 0,
+    is_honest_mark:    document.getElementById('cat-f-honest-mark').checked,
     notes:             document.getElementById('cat-f-notes').value.trim(),
   };
 
@@ -12352,7 +12840,6 @@ function buildDocSet(s) {
         { id: 'cert_tech',    required: false },
         { id: 'datasheet',    required: false },
         { id: 'cert_trts',    required: false },
-        { id: 'cert_fumig',   required: false },
       ]
     },
     {
@@ -14189,6 +14676,80 @@ function _shpContractSpecBlock(s) {
     </div>`;
 }
 
+const STAGE_DOC_MAP = {
+  contract:   ['Договор поставки', 'Спецификация / Приложение'],
+  payment:    ['Платёжное поручение (предоплата)', 'SWIFT MT103'],
+  production: ['Inspection Report', 'Фото готового товара'],
+  pickup:     ['Booking Confirmation', 'Shipping Instructions (SI)'],
+  export:     ['Экспортная ДТ (от поставщика)', 'Инвойс (финальный)', 'Упаковочный лист'],
+  transit:    ['Bill of Lading (оригинал)', 'Freight Invoice'],
+  arrival:    ['Arrival Notice / АРД', 'Уведомление о прибытии (ФТС)'],
+  svh:        ['Квитанция СВХ', 'Уведомление о помещении на СВХ'],
+  customs:    ['ДТ (импортная)', 'Платёжное поручение на ТС и сборы', 'Решение о выпуске'],
+  delivery:   ['ТН / ТТН', 'Акт приёмки товара'],
+};
+
+function stageAttachFile(shipId, stageKey, inputEl) {
+  const file = inputEl?.files?.[0];
+  if (!file || typeof apiFetch !== 'function') {
+    showToast('ℹ️ Загрузка файлов требует подключения к серверу', 'warn');
+    return;
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('entity_type', 'shipment');
+  fd.append('entity_id', String(shipId));
+  fd.append('document_type', stageKey);
+  apiFetch('/api/v1/documents/upload', { method: 'POST', body: fd })
+    .then(() => {
+      showToast('✅ Файл прикреплён к этапу');
+      const s = DB_shipments.find(shipId);
+      if (s) _shpRenderScans(String(shipId));
+    })
+    .catch(() => showToast('⚠️ Ошибка загрузки файла', 'warn'));
+}
+
+function _shpStageDocsBlock(s) {
+  const cur = typeof s.currentStage === 'number' ? s.currentStage : 0;
+  const stages = PIPE_STAGES.map((st, i) => {
+    const isDone    = i < cur;
+    const isCurrent = i === cur;
+    const docs = STAGE_DOC_MAP[st.key] || [];
+    const dotBg = isDone ? 'var(--green)' : isCurrent ? 'var(--co-accent)' : 'var(--surface2)';
+    const dotBorder = isDone ? 'var(--green)' : isCurrent ? 'var(--co-accent)' : 'var(--border)';
+    const dotColor  = isDone || isCurrent ? '#fff' : 'var(--text3)';
+    return `<div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border2);
+                        ${isDone ? 'opacity:0.6' : ''}">
+      <div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;
+                  justify-content:center;font-size:11px;background:${dotBg};
+                  border:2px solid ${dotBorder};color:${dotColor};font-weight:700;margin-top:1px">
+        ${isDone ? '✓' : st.icon}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:${isCurrent?700:600};
+                    color:${isCurrent ? 'var(--co-accent)' : 'var(--text2)'};margin-bottom:3px">
+          ${st.label.replace('\n', ' ')}
+        </div>
+        ${docs.map(d => `<div style="font-size:11px;color:var(--text3);padding:1px 0">◻ ${d}</div>`).join('')}
+      </div>
+      <div style="flex-shrink:0;align-self:center">
+        <input type="file" id="sf-${s.id}-${st.key}" style="display:none"
+               onchange="stageAttachFile('${s.id}','${st.key}',this)">
+        <button class="admin-action-btn" style="font-size:10px;padding:4px 8px"
+                onclick="document.getElementById('sf-${s.id}-${st.key}').click()" title="Прикрепить файл к этапу">
+          📎
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div style="margin-top:20px;border-top:2px solid var(--border);padding-top:14px">
+    <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.8px;
+                color:var(--text3);margin-bottom:10px">Документы по этапам</div>
+    ${stages}
+  </div>`;
+}
+
 function shpRenderDocs(s) {
   _shpRenderDocs_base(s);   // render original checklist
 
@@ -14231,6 +14792,9 @@ function shpRenderDocs(s) {
     </div>`;
 
   el.innerHTML += linkedHTML;
+
+  // ── Документы по этапам ──
+  el.insertAdjacentHTML('beforeend', _shpStageDocsBlock(s));
 
   // Прикреплённые файлы-сканы (из бэкенда, напр. проформа) — подгружаем асинхронно
   el.insertAdjacentHTML('beforeend', `<div id="shpd-scans-${sid}" style="margin-top:18px"></div>`);
