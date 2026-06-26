@@ -1830,7 +1830,7 @@
     <!-- PRE-CALCULATION MODULE -->
     <div id="section-precalc" class="section">
       <div class="section-title">Предварительный расчёт</div>
-      <div class="section-sub">Полная себестоимость поставки в ₽ · от FOB до склада</div>
+      <div class="section-sub">Полная себестоимость поставки в ₽ · EXW / FOB / CFR-CIF · Море / Авиа / Авто / Ж/Д</div>
 
       <div style="display:flex;gap:20px;align-items:flex-start">
 
@@ -1857,41 +1857,86 @@
 
           <!-- Логистика -->
           <div class="card-block" style="margin-bottom:16px">
-            <div class="block-title">Логистика (Freight)</div>
-            <div class="form-grid cols-3">
+            <div class="block-title">Логистика</div>
+            <!-- Инкотермс + транспорт -->
+            <div class="form-grid cols-3" style="margin-bottom:12px">
               <div class="field">
-                <label>Порт отгрузки</label>
+                <label>Инкотермс</label>
+                <select id="pc-incoterms" onchange="pcUpdateTransportUI();pcCalc()">
+                  <option value="FOB">FOB — Free on Board</option>
+                  <option value="EXW">EXW — Ex Works</option>
+                  <option value="CFR">CFR — Cost &amp; Freight</option>
+                  <option value="CIF">CIF — Cost Insurance Freight</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Вид транспорта</label>
+                <select id="pc-transport" onchange="pcUpdateTransportUI();pcAutoFillFreight()">
+                  <option value="sea">🚢 Морской</option>
+                  <option value="air">✈️ Авиа</option>
+                  <option value="road">🚛 Авто</option>
+                  <option value="rail">🚂 Ж/Д</option>
+                </select>
+              </div>
+              <div class="field" id="pc-service-field">
+                <label>Сервис</label>
+                <select id="pc-service" onchange="pcUpdateTransportUI();pcAutoFillFreight()">
+                  <option value="full">Полный (FCL / прямой)</option>
+                  <option value="lcl">Сборный / LCL</option>
+                </select>
+              </div>
+            </div>
+            <!-- Динамические поля -->
+            <div class="form-grid cols-3">
+              <div class="field" id="pc-inland-field" style="display:none">
+                <label>Доставка до порта ($)</label>
+                <input id="pc-inland-freight" type="number" min="0" step="10" placeholder="0"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label id="pc-origin-label">Порт отгрузки</label>
                 <select id="pc-port" onchange="pcAutoFillFreight()">
                   <option value="">— выберите —</option>
                   <option value="Shanghai">Shanghai</option>
                   <option value="Nansha">Nansha</option>
                   <option value="Ningbo">Ningbo</option>
                   <option value="Xiamen">Xiamen</option>
-                  <option value="Beijing">Beijing</option>
                   <option value="Qingdao">Qingdao</option>
                   <option value="Shenzhen">Shenzhen</option>
+                  <option value="Guangzhou">Guangzhou</option>
+                  <option value="Tianjin">Tianjin</option>
                 </select>
               </div>
-              <div class="field">
+              <div class="field" id="pc-container-field">
                 <label>Тип контейнера</label>
                 <select id="pc-container" onchange="pcAutoFillFreight()">
                   <option value="20'">20'</option>
                   <option value="40'">40'</option>
                   <option value="40'HC">40'HC</option>
-                  <option value="LCL">LCL</option>
+                  <option value="45'HC">45'HC</option>
                 </select>
               </div>
-              <div class="field">
-                <label>Перевозчик (авто)</label>
-                <input id="pc-carrier" placeholder="из реестра тарифов" readonly
-                       style="background:var(--surface2);color:var(--text3)">
+              <div class="field" id="pc-cbm-field" style="display:none">
+                <label>Объём, CBM</label>
+                <input id="pc-cbm" type="number" min="0" step="0.01" placeholder="0.00"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
               </div>
-              <div class="field">
-                <label>Ставка фрахта</label>
-                <input id="pc-freight-rate" type="number" min="0" step="1" placeholder="0"
+              <div class="field" id="pc-weight-field" style="display:none">
+                <label id="pc-weight-label">Вес, кг</label>
+                <input id="pc-weight-kg" type="number" min="0" step="0.1" placeholder="0"
                        oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
               </div>
               <div class="field">
+                <label>Перевозчик</label>
+                <input id="pc-carrier" placeholder="из реестра тарифов" readonly
+                       style="background:var(--surface2);color:var(--text3)">
+              </div>
+              <div class="field" id="pc-freight-rate-field">
+                <label id="pc-freight-rate-label">Ставка фрахта</label>
+                <input id="pc-freight-rate" type="number" min="0" step="1" placeholder="0"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field" id="pc-freight-currency-field">
                 <label>Валюта фрахта</label>
                 <select id="pc-freight-currency" onchange="pcCalc()">
                   <option value="USD">USD</option>
@@ -1900,11 +1945,22 @@
                   <option value="RUB">RUB</option>
                 </select>
               </div>
-              <div class="field">
-                <label>Страховка, % от FOB</label>
+              <div class="field" id="pc-min-charge-field" style="display:none">
+                <label>Min Charge ($)</label>
+                <input id="pc-min-charge" type="number" min="0" step="10" placeholder="0"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field" id="pc-insurance-field">
+                <label id="pc-insurance-label">Страховка, % от FOB</label>
                 <input id="pc-insurance-pct" type="number" min="0" max="5" step="0.1" value="0.3"
                        oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
               </div>
+            </div>
+            <div id="pc-cfr-info" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;
+                 background:rgba(30,91,168,0.06);border:1px solid rgba(30,91,168,0.2);
+                 font-size:12px;color:var(--text2)">
+              ℹ️ При CFR/CIF фрахт уже включён в цену товара. Таможенная стоимость = стоимость товаров
+              (+ страховка для CFR).
             </div>
           </div>
 
