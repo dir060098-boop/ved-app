@@ -2049,6 +2049,22 @@
         </div><!-- /RIGHT -->
 
       </div>
+
+      <!-- История сохранённых расчётов -->
+      <div class="card-block" id="pc-history-block" style="margin-top:24px;display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="block-title" style="margin:0">История расчётов</div>
+          <div style="display:flex;gap:8px">
+            <button class="add-row-btn" onclick="pcExportCsv()" style="font-size:11px">
+              ⬇ Экспорт CSV
+            </button>
+            <button class="add-row-btn" onclick="pcClearHistory()" style="font-size:11px;color:var(--red)">
+              🗑 Очистить всё
+            </button>
+          </div>
+        </div>
+        <div id="pc-history-body"></div>
+      </div>
     </div>
 
     <!-- CUSTOMS CALCULATOR -->
