@@ -7531,11 +7531,17 @@ function pcUpdateTransportUI() {
   const mcFld = document.getElementById('pc-min-charge-field');
   if (mcFld) mcFld.style.display = transport === 'air' ? '' : 'none';
 
+  // Unit select: visible for LCL (sea/rail)
+  const unitFld = document.getElementById('pc-freight-unit-field');
+  if (unitFld) unitFld.style.display = (isLCL && transport !== 'air') ? '' : 'none';
+  const freightUnit = document.getElementById('pc-freight-unit')?.value || 'ft';
+
   // Freight rate label
+  const lclUnitLbl = { ft:'$/ФТ (фрахт-тонна)', kg:'$/кг', cbm:'$/CBM' }[freightUnit] || '$/ФТ';
   const ftLbls = {
-    sea_full:'Ставка фрахта, $/конт.', sea_lcl:'Ставка фрахта, $/ФТ',
-    air:'Ставка, $/кг', road:'Ставка за рейс',
-    rail_full:'Ставка, $/конт.',       rail_lcl:'Ставка, $/ФТ',
+    sea_full:'Ставка, $/конт.', sea_lcl:`Ставка, ${lclUnitLbl}`,
+    air:'Ставка, $/кг',         road:'Ставка за рейс',
+    rail_full:'Ставка, $/конт.',rail_lcl:`Ставка, ${lclUnitLbl}`,
   };
   const ftKey = transport === 'air' ? 'air'
     : transport === 'road' ? 'road'
@@ -7724,10 +7730,14 @@ function pcCalc() {
       const minCharge = parseFloat(document.getElementById('pc-min-charge')?.value) || 0;
       freightRub = Math.max(wKg * freightRate, minCharge) * pcGetRate(freightCur);
     } else if (isLCL) {
-      const cbm  = parseFloat(document.getElementById('pc-cbm')?.value) || 0;
-      const wKg  = parseFloat(document.getElementById('pc-weight-kg')?.value) || 0;
-      const fTon = Math.max(cbm, wKg / 1000);
-      freightRub = fTon * freightRate * pcGetRate(freightCur);
+      const cbm        = parseFloat(document.getElementById('pc-cbm')?.value) || 0;
+      const wKg        = parseFloat(document.getElementById('pc-weight-kg')?.value) || 0;
+      const freightUnit = document.getElementById('pc-freight-unit')?.value || 'ft';
+      let freightQty;
+      if (freightUnit === 'kg')       freightQty = wKg;
+      else if (freightUnit === 'cbm') freightQty = cbm;
+      else                             freightQty = Math.max(cbm, wKg / 1000); // ФТ
+      freightRub = freightQty * freightRate * pcGetRate(freightCur);
     } else {
       freightRub = freightRate * pcGetRate(freightCur);
     }
@@ -7773,7 +7783,14 @@ function pcCalc() {
                    bankRub + brokerRub + svhRub + certRub + dgRub + markingRub;
 
   const costPerUnit = totalQty > 0 ? totalRub / totalQty : 0;
-  _pcLastCalc = { total: totalRub, costPerUnit };
+  _pcLastCalc = {
+    total: totalRub, costPerUnit,
+    goodsRub, inlandRub, freightRub, insuranceRub, customsValueRub,
+    dutyRub, customsFee, vatRub, avgVatPct,
+    bankRub, brokerRub, svhRub, certRub, dgRub, markingRub,
+    incoterms, transport, bankPct: parseFloat(document.getElementById('pc-bank-pct')?.value)||0,
+    insurancePct,
+  };
 
   if (goodsRub === 0) {
     resultEl.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text3)">
@@ -7894,9 +7911,11 @@ function pcSave() {
     cert: parseFloat(document.getElementById('pc-cert')?.value)||0,
     dg_cost: parseFloat(document.getElementById('pc-dg-cost')?.value)||0,
     marking: parseFloat(document.getElementById('pc-marking')?.value)||0,
+    freight_unit: document.getElementById('pc-freight-unit')?.value || 'ft',
     company: activeCompany,
     _total: _pcLastCalc.total,
     _cost_per_unit: _pcLastCalc.costPerUnit,
+    _breakdown: { ..._pcLastCalc },
   };
   try {
     const saved = JSON.parse(localStorage.getItem('ved_precalc_saved')||'[]');
@@ -7952,6 +7971,8 @@ function pcRenderHistory() {
             <td class="num">${fmtRub(r._cost_per_unit||0)}</td>
             <td style="color:var(--text3)">${r.company||'—'}</td>
             <td style="text-align:right;white-space:nowrap">
+              <button class="add-row-btn" onclick="pcExportDetail('${r.id}')"
+                      style="font-size:10px;padding:2px 6px;margin-right:2px" title="Детальный экспорт">📄</button>
               <button class="add-row-btn" onclick="pcLoadFromHistory('${r.id}')"
                       style="font-size:10px;padding:2px 6px;margin-right:4px" title="Загрузить в форму">↑ Загрузить</button>
               <button class="del-btn" onclick="pcDeleteFromHistory('${r.id}')" title="Удалить">×</button>
@@ -8012,35 +8033,113 @@ function pcClearHistory() {
   pcRenderHistory();
 }
 
+function pcExportDetail(id) {
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem('ved_precalc_saved') || '[]'); } catch(e) {}
+  const r = saved.find(x => x.id === id);
+  if (!r) return;
+
+  const b   = r._breakdown || {};
+  const fmt = n => n > 0 ? Math.round(n) : 0;
+  const transportLbl = { sea:'Морской', air:'Авиа', road:'Авто', rail:'Ж/Д' }[r.transport||'sea'] || r.transport;
+  const serviceLbl   = { full:'Полный (FCL/прямой)', lcl:'Сборный / LCL' }[r.service||'full'] || r.service;
+  const goods = (r.goods||[]);
+
+  // Section 1: параметры
+  const paramRows = [
+    ['ПАРАМЕТРЫ',''],
+    ['Дата', r.date||''],
+    ['Компания', r.company||''],
+    ['Инкотермс', r.incoterms||'FOB'],
+    ['Транспорт', transportLbl],
+    ['Сервис', serviceLbl],
+    ['Порт / Аэропорт / Станция', r.port||''],
+    ['Тип контейнера', r.container||''],
+    ['Ставка фрахта', r.freight_rate||0],
+    ['Валюта фрахта', r.freight_currency||'USD'],
+    ['USD→₽', r.rate_usd||0],
+    ['CNY→₽', r.rate_cny||0],
+    ['EUR→₽', r.rate_eur||0],
+    ['',''],
+    ['ТОВАРЫ',''],
+    ['Наименование','Кол-во / Цена / Валюта / Пошлина%'],
+    ...goods.map(g => [g.name||'', `${g.qty} × ${g.price} ${g.currency} (пошлина ${g.duty_pct||0}%, НДС ${g.vat_pct||22}%)`]),
+    ['',''],
+    ['РАСЧЁТ СЕБЕСТОИМОСТИ','Сумма, ₽'],
+    [`Стоимость товаров (${r.incoterms||'FOB'})`, fmt(b.goodsRub)],
+    ...(b.inlandRub > 0 ? [['Доставка до порта/аэропорта', fmt(b.inlandRub)]] : []),
+    ...(b.freightRub > 0 ? [['Фрахт', fmt(b.freightRub)]] : []),
+    ...(b.insuranceRub > 0 ? [[`Страховка ${b.insurancePct||0.3}%`, fmt(b.insuranceRub)]] : []),
+    ['Таможенная стоимость (CIF)', fmt(b.customsValueRub)],
+    ['Ввозная пошлина', fmt(b.dutyRub)],
+    ['Таможенный сбор', fmt(b.customsFee)],
+    [`НДС ${Math.round(b.avgVatPct||22)}%`, fmt(b.vatRub)],
+    ['Брокер', fmt(b.brokerRub)],
+    ['СВХ', fmt(b.svhRub)],
+    [`Банковская комиссия ${b.bankPct||0}%`, fmt(b.bankRub)],
+    ...(b.certRub > 0 ? [['Сертификация', fmt(b.certRub)]] : []),
+    ...(b.dgRub > 0 ? [['Доп. расходы (ОГ)', fmt(b.dgRub)]] : []),
+    ...(b.markingRub > 0 ? [['Маркировка', fmt(b.markingRub)]] : []),
+    ['',''],
+    ['ИТОГО ₽', fmt(r._total||0)],
+    ['Себестоимость / ед. ₽', fmt(r._cost_per_unit||0)],
+  ];
+
+  const csv = paramRows.map(row =>
+    row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')
+  ).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `precalc_detail_${r.date||'nodate'}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✅ Детальный расчёт экспортирован');
+}
+
 function pcExportCsv() {
   let saved = [];
   try { saved = JSON.parse(localStorage.getItem('ved_precalc_saved') || '[]'); } catch(e) {}
   if (!saved.length) { showToast('Нет сохранённых расчётов', 'warn'); return; }
 
-  const cols = ['Дата','Инкотермс','Транспорт','Сервис','Порт/аэропорт','Контейнер',
-                'Фрахт (USD)','Страховка %','USD→₽','CNY→₽','EUR→₽',
-                'Брокер ₽','СВХ ₽','Банк %','Сертиф ₽','ИТОГО ₽','Себ./ед. ₽','Компания'];
-  const rows = saved.map(r => [
-    r.date, r.incoterms||'FOB', r.transport||'sea', r.service||'full',
-    r.port||'', r.container||'',
-    r.freight_rate||0, r.insurance_pct||0.3,
-    r.rate_usd||0, r.rate_cny||0, r.rate_eur||0,
-    r.broker||0, r.svh||0, r.bank_pct||0, r.cert||0,
-    r._total||0, r._cost_per_unit||0, r.company||'',
-  ]);
+  const transportLbl = { sea:'Морской', air:'Авиа', road:'Авто', rail:'Ж/Д' };
+  const serviceLbl   = { full:'FCL / прямой', lcl:'Сборный / LCL' };
+
+  const cols = ['Дата','Компания','Инкотермс','Транспорт','Сервис','Порт/аэропорт','Контейнер',
+                'Стоимость товаров ₽','Фрахт ₽','Страховка ₽','ТС CIF ₽',
+                'Пошлина ₽','ТС сбор ₽','НДС ₽','Брокер ₽','СВХ ₽','Банк ₽','Серт ₽',
+                'ИТОГО ₽','Себ./ед. ₽',
+                'USD→₽','CNY→₽','EUR→₽'];
+
+  const rows = saved.map(r => {
+    const b = r._breakdown || {};
+    const fmt = n => Math.round(n||0);
+    return [
+      r.date||'', r.company||'',
+      r.incoterms||'FOB',
+      transportLbl[r.transport||'sea'] || r.transport||'',
+      serviceLbl[r.service||'full']    || r.service||'',
+      r.port||'', r.container||'',
+      fmt(b.goodsRub), fmt(b.freightRub), fmt(b.insuranceRub), fmt(b.customsValueRub),
+      fmt(b.dutyRub), fmt(b.customsFee), fmt(b.vatRub),
+      fmt(b.brokerRub), fmt(b.svhRub), fmt(b.bankRub), fmt(b.certRub),
+      fmt(r._total), fmt(r._cost_per_unit),
+      r.rate_usd||0, r.rate_cny||0, r.rate_eur||0,
+    ];
+  });
 
   const csv = [cols, ...rows].map(row =>
     row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')
   ).join('\r\n');
-  const bom = '﻿';
-  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url;
-  a.download = `precalc_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `precalc_list_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-  showToast('✅ CSV экспортирован');
+  showToast('✅ Список расчётов экспортирован');
 }
 
 // ════════════════════════════════════════════

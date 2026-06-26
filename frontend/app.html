@@ -1933,8 +1933,16 @@
               </div>
               <div class="field" id="pc-freight-rate-field">
                 <label id="pc-freight-rate-label">Ставка фрахта</label>
-                <input id="pc-freight-rate" type="number" min="0" step="1" placeholder="0"
+                <input id="pc-freight-rate" type="number" min="0" step="0.01" placeholder="0"
                        oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field" id="pc-freight-unit-field" style="display:none">
+                <label>Единица расчёта</label>
+                <select id="pc-freight-unit" onchange="pcUpdateTransportUI();pcCalc()">
+                  <option value="ft">$/ФТ (фрахт-тонна)</option>
+                  <option value="kg">$/кг</option>
+                  <option value="cbm">$/CBM</option>
+                </select>
               </div>
               <div class="field" id="pc-freight-currency-field">
                 <label>Валюта фрахта</label>
