@@ -64,7 +64,7 @@ function showSection(name) {
   if (name === 'currency') fxInit();
   if (name === 'packing') plInit();
   if (name === 'budget') { bgLoad(); renderBudgets(); }
-  if (name === 'payments') { pmLoad(); renderPayments(); }
+  if (name === 'payments') { if (typeof _pmMigrateEmbedded==='function') _pmMigrateEmbedded(); else pmLoad(); renderPayments(); }
   // Company tabs
   if (name === 'contract') ctShowList();
   if (name === 'spec') spShowList();
@@ -6467,6 +6467,12 @@ function pmLoad() {
 }
 
 function pmSave() {
+  // Авто-привязка только что созданного платежа к поставке (из finCreatePayment)
+  if (window._pendingPaymentShipmentId) {
+    const last = payments[payments.length - 1];
+    if (last && !last.shipment_id) last.shipment_id = window._pendingPaymentShipmentId;
+    window._pendingPaymentShipmentId = null;
+  }
   try { localStorage.setItem('ved_payments', JSON.stringify(payments)); } catch(e) {}
   try { localStorage.setItem('ved_pm_scans', JSON.stringify(pmScans)); } catch(e) {}
 }
@@ -14075,10 +14081,71 @@ const PAY_TEMPLATES = [
   { id:'lc',            label:'Аккредитив (L/C)' },
 ];
 
+/* ── Приоритет 2: единый источник правды для платежей ──────────────
+   Платежи живут ТОЛЬКО в реестре ved_payments (глобальный `payments`),
+   связь с поставкой — поле shipment_id. Вкладка «Платежи» и «Финансы»
+   и сам Реестр платежей читают один и тот же стор через
+   finGetLinkedPayments(). Встроенные s.payments[] — легаси, мигрируются
+   один раз в реестр (по поставке, идемпотентно). */
+
+function _pmShipPo(s) { return s ? (s.po || s.shipment_number || '') : ''; }
+
+// Перенос встроенных s.payments[] в реестр ved_payments. Идемпотентно:
+// помечает поставку s._pm_migrated, чистит s.payments. Безопасно звать часто.
+function _pmMigrateEmbedded() {
+  if (typeof pmLoad === 'function') pmLoad();           // payments ← ved_payments
+  const ships = DB_shipments.all();
+  let touched = false;
+  ships.forEach(s => {
+    if (s._pm_migrated || !(s.payments && s.payments.length)) return;
+    const po       = _pmShipPo(s);
+    const supName  = (typeof shpSupName === 'function') ? shpSupName(s) : '';
+    s.payments.forEach(p => {
+      const pid = p.id != null ? p.id : ('pm' + Date.now() + Math.random().toString(36).slice(2,6));
+      if (payments.some(x => x.id === pid)) return;      // уже перенесён
+      payments.push({
+        id:         pid,
+        shipment_id:String(s.id),
+        po,
+        type:       p.type || 'payment',
+        note:       p.note || '',
+        payee:      supName,
+        amount:     p.amount || 0,
+        currency:   p.currency || s.currency || 'USD',
+        pct:        p.pct || 0,
+        dueDate:    p.due || p.dueDate || '',
+        status:     p.status || 'pending',
+        paidAmount: p.status === 'paid' ? (p.amount || 0) : (p.paidAmount || 0),
+        paidDate:   p.paid || p.paidDate || '',
+        rate:       p.rate || 0,
+        ppNum:      p.ppNum || '',
+        swift:      '',
+        priority:   'normal',
+        terms:      '',
+        generated:  !!p.generated,
+        created:    new Date().toISOString().slice(0,10),
+        company:    s.company || activeCompany,
+      });
+    });
+    DB_shipments.update(s.id, { payments: [], _pm_migrated: true });
+    touched = true;
+  });
+  if (touched && typeof pmSave === 'function') pmSave();
+}
+
+// Платежи поставки из ЕДИНОГО реестра (тот же источник, что вкладка Финансы).
+function _shpPayments(s) {
+  _pmMigrateEmbedded();
+  const po = _pmShipPo(s);
+  return payments
+    .filter(p => String(p.shipment_id) === String(s.id) || (po && p.po === po))
+    .map(r => ({ ...r, due: r.dueDate || r.due || '', paid: r.paidDate || r.paid || '' }));
+}
+
 function shpRenderPayments(s) {
   const el = document.getElementById('shpd-payments-content');
   if (!el) return;
-  const pmts   = s.payments || [];
+  const pmts   = _shpPayments(s);
   const cur    = s.currency || 'USD';
   const total  = s.total_value || 0;
   const etd    = s.dates?.etd || '';
@@ -14154,11 +14221,11 @@ function shpRenderPayments(s) {
             ${p.pct?`<div style="font-size:10px;color:var(--text3)">${p.pct}% от суммы</div>`:''}
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
-            <button class="admin-action-btn" onclick="shpTogglePaid(${i})" style="${p.status==='paid'?'':'background:var(--co-accent-light);border-color:var(--co-accent);color:var(--co-accent);font-size:10px'}">
+            <button class="admin-action-btn" onclick="shpTogglePaid('${p.id}')" style="${p.status==='paid'?'':'background:var(--co-accent-light);border-color:var(--co-accent);color:var(--co-accent);font-size:10px'}">
               ${p.status==='paid'?'↩':'✓ Оплачен'}
             </button>
-            ${p.status==='paid'?`<input placeholder="№ п/п" value="${p.ppNum||''}" onchange="shpSetPpNum(${i},this.value)" style="width:90px;padding:3px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;font-family:'Fira Code',monospace;background:var(--surface)">`:'' }
-            <button class="admin-action-btn danger" onclick="shpRemovePayment(${i})" style="font-size:10px">×</button>
+            ${p.status==='paid'?`<input placeholder="№ п/п" value="${p.ppNum||''}" onchange="shpSetPpNum('${p.id}',this.value)" style="width:90px;padding:3px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;font-family:'Fira Code',monospace;background:var(--surface)">`:'' }
+            <button class="admin-action-btn danger" onclick="shpRemovePayment('${p.id}')" style="font-size:10px">×</button>
           </div>
         </div>`;
       }).join('');
@@ -14241,11 +14308,15 @@ function shpGeneratePaymentSchedule() {
     const d = new Date(base+'T00:00:00'); d.setDate(d.getDate()+n);
     return d.toISOString().slice(0,10);
   };
+  const supName = (typeof shpSupName === 'function') ? shpSupName(s) : '';
   const mkPmt = (note, pct, base, offsetDays) => ({
     id: 'pg'+Date.now()+Math.random().toString(36).slice(2,5),
+    shipment_id: String(s.id), po: _pmShipPo(s), payee: supName, type:'payment',
     note, pct, amount: Math.round(total*pct/100*100)/100,
-    currency: cur, due: addDays(base, offsetDays),
-    status:'pending', paid:'', ppNum:'', generated:true
+    currency: cur, dueDate: addDays(base, offsetDays),
+    status:'pending', paidAmount:0, paidDate:'', rate:0, ppNum:'', swift:'',
+    priority:'normal', terms:'', generated:true,
+    created: new Date().toISOString().slice(0,10), company: s.company||activeCompany,
   });
 
   const TPLS = {
@@ -14266,11 +14337,30 @@ function shpGeneratePaymentSchedule() {
 
   const gen = TPLS[template];
   if (!gen) return;
-  const pmts = (s.payments||[]).filter(p=>!p.generated);
-  const newPmts = [...pmts, ...gen()];
-  DB_shipments.update(_shpCurrent, { payments: newPmts });
+  _pmMigrateEmbedded();
+  const po = _pmShipPo(s);
+  // Удаляем ранее сгенерированные платежи этой поставки, ручные оставляем
+  payments = payments.filter(p =>
+    !(p.generated && (String(p.shipment_id) === String(s.id) || (po && p.po === po)))
+  );
+  payments.push(...gen());
+  pmSave();
   shpRenderPayments(DB_shipments.find(_shpCurrent));
   showToast(`📅 График платежей создан`);
+}
+
+// Создать запись платежа в едином реестре, привязанную к поставке s.
+function _shpNewPaymentRecord(s, fields) {
+  const supName = (typeof shpSupName === 'function') ? shpSupName(s) : '';
+  return {
+    id: 'pm' + Date.now() + Math.random().toString(36).slice(2,5),
+    shipment_id: String(s.id), po: _pmShipPo(s), payee: supName, type:'payment',
+    note:'', amount:0, currency: s.currency||'USD', pct:0, dueDate:'',
+    status:'pending', paidAmount:0, paidDate:'', rate:0, ppNum:'', swift:'',
+    priority:'normal', terms:'', generated:false,
+    created: new Date().toISOString().slice(0,10), company: s.company||activeCompany,
+    ...fields,
+  };
 }
 
 function shpAddPaymentManual() {
@@ -14279,29 +14369,25 @@ function shpAddPaymentManual() {
   const note   = prompt('Название платежа:');       if (!note) return;
   const amount = parseFloat(prompt('Сумма:')||'0'); if (!amount) return;
   const due    = prompt('Дата срока (ГГГГ-ММ-ДД):') || '';
-  const pmts   = s.payments || [];
-  pmts.push({ id:'pm'+Date.now(), note, amount, currency:s.currency||'USD', due, status:'pending', paid:'', ppNum:'', pct:0 });
-  DB_shipments.update(_shpCurrent, { payments: pmts });
+  _pmMigrateEmbedded();
+  payments.push(_shpNewPaymentRecord(s, { note, amount, dueDate: due }));
+  pmSave();
   shpRenderPayments(DB_shipments.find(_shpCurrent));
 }
 
-function shpSetPpNum(idx, val) {
-  const s = DB_shipments.find(_shpCurrent);
-  if (!s) return;
-  const pmts = s.payments || [];
-  if (pmts[idx]) { pmts[idx].ppNum = val; DB_shipments.update(_shpCurrent, { payments: pmts }); }
+function shpSetPpNum(id, val) {
+  _pmMigrateEmbedded();
+  const p = payments.find(x => String(x.id) === String(id));
+  if (p) { p.ppNum = val; pmSave(); }
 }
 
-function shpTogglePaid(idx) {
-  const s = DB_shipments.find(_shpCurrent);
-  if (!s) return;
-  const pmts = s.payments || [];
-  if (pmts[idx]) {
-    pmts[idx].status = pmts[idx].status === 'paid' ? 'pending' : 'paid';
-    if (pmts[idx].status === 'paid') pmts[idx].paid = new Date().toISOString().slice(0,10);
-    else pmts[idx].paid = '';
-  }
-  DB_shipments.update(_shpCurrent, { payments: pmts });
+function shpTogglePaid(id) {
+  _pmMigrateEmbedded();
+  const p = payments.find(x => String(x.id) === String(id));
+  if (!p) return;
+  if (p.status === 'paid') { p.status = 'pending'; p.paidDate = ''; p.paidAmount = 0; }
+  else { p.status = 'paid'; p.paidDate = new Date().toISOString().slice(0,10); p.paidAmount = p.amount || 0; }
+  pmSave();
   shpRenderPayments(DB_shipments.find(_shpCurrent));
 }
 
@@ -14312,19 +14398,17 @@ function shpAddPayment() {
   const due    = prompt('Дата оплаты (ГГГГ-ММ-ДД):') || '';
   const s = DB_shipments.find(_shpCurrent);
   if (!s) return;
-  const pmts = s.payments || [];
-  pmts.push({ id: 'p' + Date.now(), type:'payment', amount, currency: s.currency||'USD', due, paid:'', status:'pending', note });
-  DB_shipments.update(_shpCurrent, { payments: pmts });
+  _pmMigrateEmbedded();
+  payments.push(_shpNewPaymentRecord(s, { note, amount, dueDate: due }));
+  pmSave();
   shpRenderPayments(DB_shipments.find(_shpCurrent));
   showToast('💳 Платёж добавлен');
 }
 
-function shpRemovePayment(idx) {
-  const s = DB_shipments.find(_shpCurrent);
-  if (!s) return;
-  const pmts = s.payments || [];
-  pmts.splice(idx, 1);
-  DB_shipments.update(_shpCurrent, { payments: pmts });
+function shpRemovePayment(id) {
+  _pmMigrateEmbedded();
+  payments = payments.filter(x => String(x.id) !== String(id));
+  pmSave();
   shpRenderPayments(DB_shipments.find(_shpCurrent));
 }
 
@@ -15787,9 +15871,13 @@ function finTotalSum(bgt, suffix) {
 
 /** Payments from the global registry linked to this shipment */
 function finGetLinkedPayments(shipId) {
-  pmLoad();  // ensure payments array is fresh
+  // единый источник: миграция встроенных платежей + свежий реестр
+  if (typeof _pmMigrateEmbedded === 'function') _pmMigrateEmbedded();
+  else if (typeof pmLoad === 'function') pmLoad();
+  const s  = DB_shipments.find(String(shipId));
+  const po = s ? _pmShipPo(s) : null;
   return (typeof payments !== 'undefined' ? payments : [])
-    .filter(p => p.shipment_id === String(shipId) || p.po === shipId);
+    .filter(p => String(p.shipment_id) === String(shipId) || (po && p.po === po));
 }
 
 /** Currency symbol */
@@ -16282,20 +16370,8 @@ function finCreatePayment(shipId, shipNum) {
   }, 150);
 }
 
-/* ── Patch pmSave to auto-link when _pendingPaymentShipmentId is set */
-const _pmSave_orig = pmSave;
-function pmSave() {
-  _pmSave_orig();
-  // Auto-link newly created payment to pending shipment if set
-  if (window._pendingPaymentShipmentId) {
-    const last = payments[payments.length - 1];
-    if (last && !last.shipment_id) {
-      last.shipment_id = window._pendingPaymentShipmentId;
-      window._pendingPaymentShipmentId = null;
-      _pmSave_orig();
-    }
-  }
-}
+/* Авто-привязка платежа к поставке вынесена в единый pmSave (см. выше) —
+   дублирующая обёртка удалена (вызывала бесконечную рекурсию). */
 
 /* ── Dashboard: expose finance summary for shipment list ─────────── */
 function finGetBudgetSummary(shipId) {
