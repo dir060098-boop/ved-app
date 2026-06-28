@@ -3269,6 +3269,17 @@ const TNVED_DB = {
   '7605':    { name: 'Проволока из алюминия', duty: 5, vat: 22, note: '' },
 };
 
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  ЕДИНЫЙ РАСЧЁТНЫЙ КОНФИГ — один источник правды для всех модулей  ║
+   ║  (предрасчёт, калькулятор пошлин, себестоимость)                  ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+
+// Базовая ставка НДС при импорте в РФ. С 2026 — 22%.
+// Меняется в ОДНОМ месте; льготные 10%/0% задаются по товару (vat_pct).
+const VAT_RATE_DEFAULT = 22;
+
+// Таможенные сборы за таможенные операции (Постановление Правительства РФ № 342).
+// ЕДИНСТВЕННАЯ таблица сборов в приложении — используется и калькулятором, и предрасчётом.
 const CUSTOMS_FEES = [
   { max: 200000, fee: 775 },   { max: 450000, fee: 1550 },
   { max: 1200000, fee: 3100 }, { max: 2700000, fee: 8530 },
@@ -7446,24 +7457,11 @@ function plApplyExtracted(dataStr) {
 // ── PRE-CALCULATION MODULE ──
 // ════════════════════════════════════════════
 
-/* Russian customs clearance fee (таможенные сборы за таможенное оформление)
-   based on customs value in RUB. Table per постановление Правительства РФ. */
-const PC_CUSTOMS_FEE_TABLE = [
-  [      200_000,    775],
-  [      450_000,  1_550],
-  [    1_200_000,  3_100],
-  [    2_500_000,  8_530],
-  [    5_000_000, 12_000],
-  [   10_000_000, 17_000],
-  [   30_000_000, 22_000],
-  [Infinity,      22_500],
-];
-
+/* Таможенный сбор берётся из ЕДИНОЙ таблицы CUSTOMS_FEES (см. getCustomsFee).
+   Отдельная таблица в предрасчёте удалена — была устаревшей и расходилась
+   с калькулятором пошлин. pcCustomsFee оставлен как тонкий алиас. */
 function pcCustomsFee(customsValueRub) {
-  for (const [limit, fee] of PC_CUSTOMS_FEE_TABLE) {
-    if (customsValueRub <= limit) return fee;
-  }
-  return 22_500;
+  return getCustomsFee(customsValueRub);
 }
 
 let _pcGoodsRows = [];  // [{name, qty, price, currency, duty_pct, vat_pct}]
@@ -7582,10 +7580,27 @@ function pcAddGoodsRow(item) {
     price:     item?.price     || 0,
     currency:  item?.currency  || 'USD',
     duty_pct:  item?.duty_pct  != null ? item.duty_pct : 0,
-    vat_pct:   item?.vat_pct   != null ? item.vat_pct  : 22,
+    vat_pct:   item?.vat_pct   != null ? item.vat_pct  : VAT_RATE_DEFAULT,
   });
   pcRenderGoodsTable();
   pcCalc();
+}
+
+// Добавить позицию из каталога — единый источник пошлины/НДС (ТН ВЭД).
+// Не дублируем ставки руками: тянем duty_pct и vat_pct из карточки товара.
+function pcAddFromCatalog() {
+  if (typeof catOpenPicker !== 'function') { showToast('Каталог недоступен', 'warn'); return; }
+  catOpenPicker((p) => {
+    pcAddGoodsRow({
+      name:     p.name_ru || p.name || p.sku || '',
+      qty:      1,
+      price:    p.price || 0,
+      currency: p.currency || 'USD',
+      duty_pct: p.duty_pct != null ? p.duty_pct : 0,
+      vat_pct:  p.vat_pct  != null ? p.vat_pct  : VAT_RATE_DEFAULT,
+    });
+    showToast(`✅ «${p.name||p.sku}» добавлен из каталога`);
+  }, 'Выберите товар — пошлина и НДС подтянутся из карточки');
 }
 
 function pcRemoveGoodsRow(idx) {
@@ -7623,7 +7638,7 @@ function pcRenderGoodsTable() {
       <td><input type="number" value="${r.duty_pct}" min="0" max="100" step="0.1"
                  oninput="pcGoodsChange(${i},'duty_pct',this.value)"
                  style="width:100%;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px"></td>
-      <td><input type="number" value="${r.vat_pct}" min="0" max="22" step="1"
+      <td><input type="number" value="${r.vat_pct}" min="0" max="30" step="1"
                  oninput="pcGoodsChange(${i},'vat_pct',this.value)"
                  style="width:100%;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px"></td>
       <td><button class="del-btn" onclick="pcRemoveGoodsRow(${i})" title="Удалить">×</button></td>
@@ -7712,9 +7727,9 @@ function pcCalc() {
     goodsRub        += lineRub;
     totalQty        += (r.qty || 0);
     weightedDutySum += lineRub * ((r.duty_pct || 0) / 100);
-    weightedVatSum  += (r.vat_pct || 22);
+    weightedVatSum  += (r.vat_pct || VAT_RATE_DEFAULT);
   });
-  const avgVatPct = _pcGoodsRows.length ? weightedVatSum / _pcGoodsRows.length : 22;
+  const avgVatPct = _pcGoodsRows.length ? weightedVatSum / _pcGoodsRows.length : VAT_RATE_DEFAULT;
 
   // ── 2. Внутренняя доставка (EXW only) ──
   const inlandUsd = isEXW ? (parseFloat(document.getElementById('pc-inland-freight')?.value) || 0) : 0;
@@ -12758,7 +12773,7 @@ function catOpenForm(id) {
   document.getElementById('cat-f-price').value     = p?.price          || '';
   document.getElementById('cat-f-currency').value  = p?.currency       || 'USD';
   document.getElementById('cat-f-duty').value      = p?.duty_pct       != null ? p.duty_pct : '';
-  document.getElementById('cat-f-vat').value       = p?.vat_pct        != null ? String(p.vat_pct) : '22';
+  document.getElementById('cat-f-vat').value       = p?.vat_pct        != null ? String(p.vat_pct) : String(VAT_RATE_DEFAULT);
   document.getElementById('cat-f-cert-type').value = p?.cert_type      || '';
   document.getElementById('cat-f-cert-cost').value = p?.cert_cost      || '';
   document.getElementById('cat-f-dg').checked      = !!(p?.is_dangerous);

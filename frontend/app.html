@@ -1852,7 +1852,10 @@
               </tr></thead>
               <tbody id="pc-goods-body"></tbody>
             </table>
-            <button class="add-row-btn" onclick="pcAddGoodsRow()" style="margin-top:8px">+ Добавить позицию</button>
+            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+              <button class="add-row-btn" onclick="pcAddGoodsRow()">+ Добавить позицию</button>
+              <button class="add-row-btn" onclick="pcAddFromCatalog()" title="Подтянуть товар с пошлиной и НДС из каталога">📦 Из каталога</button>
+            </div>
           </div>
 
           <!-- Логистика -->
