@@ -15775,7 +15775,10 @@ function finGetOrCreateBudget(shipId) {
 
 /** Sum a group's plan or fact from budget record */
 function finGroupSum(bgt, group, suffix) {
+  // ОСНО: ввозной НДС возмещается из бюджета → НЕ входит в себестоимость.
+  const vatDeductible = !!bgt.bg_vat_deductible;
   return (group.lines || []).reduce((sum, l) => {
+    if (vatDeductible && l.id === 'cus_vat') return sum;
     return sum + (parseFloat(bgt[l.id + '_' + suffix]) || 0);
   }, 0);
 }
@@ -15953,6 +15956,32 @@ function shpRenderFinance(s) {
   })() : '';
 
   // ── C. Budget editor table (collapsible by group) ─────────────────
+  const vatDeductible = !!bgt.bg_vat_deductible;
+  const finControlsHTML = `
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+      <div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'JetBrains Mono',monospace">ВАЛЮТА</div>
+        <select id="fin-fc-cur-${sid}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px">
+          ${['USD','EUR','CNY','INR','GBP'].map(c2=>`<option${(bgt.bg_currency||'USD')===c2?' selected':''}>${c2}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'JetBrains Mono',monospace">СУММА В ВАЛЮТЕ</div>
+        <input type="number" id="fin-fc-amt-${sid}" value="${bgt.bg_fc_amount||''}" placeholder="0.00" style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px">
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'JetBrains Mono',monospace">КУРС ₽</div>
+        <input type="number" id="fin-fc-rate-${sid}" value="${bgt.bg_rate||''}" placeholder="90.00" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px">
+      </div>
+      <button class="admin-action-btn" onclick="finFillFromCurrency('${sid}')" style="font-size:11px;padding:6px 14px;background:var(--co-accent-light);border-color:var(--co-accent);color:var(--co-accent)">→ Заполнить стоимость товара ₽</button>
+      <div style="width:100%;margin-top:4px;padding-top:8px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button onclick="finToggleVatDeductible('${sid}')" style="padding:5px 12px;border:1.5px solid ${vatDeductible?'var(--co-accent)':'var(--border)'};border-radius:6px;background:${vatDeductible?'var(--co-accent-light)':'transparent'};cursor:pointer;font-size:11px;font-family:'JetBrains Mono',monospace;transition:all 0.15s">
+          ${vatDeductible?'<span style="color:var(--co-accent);font-weight:700">✅ ОСНО — НДС к вычету</span>':'<span style="color:var(--text3)">☐ УСН / спецрежим — НДС в затраты</span>'}
+        </button>
+        <span style="font-size:10px;color:var(--text3)">${vatDeductible?'Ввозной НДС возмещается — не входит в себестоимость':'Ввозной НДС включается в себестоимость товара'}</span>
+      </div>
+    </div>`;
+
   const editorHTML = `
     <div class="fin-section-title">✏️ Редактор бюджета
       <button class="admin-action-btn" onclick="finSaveBudget('${sid}')"
@@ -15960,6 +15989,7 @@ function shpRenderFinance(s) {
       <button class="admin-action-btn" onclick="finAutoFillBudget('${sid}')"
               style="font-size:11px;padding:4px 12px">🔄 Авто-заполнение</button>
     </div>
+    ${finControlsHTML}
     <table class="fin-budget-tbl" id="fin-budget-tbl-${sid}">
       <thead><tr>
         <th style="min-width:200px">Статья</th>
@@ -15982,10 +16012,13 @@ function shpRenderFinance(s) {
               const plan = parseFloat(bgt[l.id + '_plan']) || 0;
               const fact = parseFloat(bgt[l.id + '_fact']) || 0;
               const delta = fact - plan;
-              const deltaHTML = delta === 0 ? '<span class="fin-delta zer">0</span>'
-                : `<span class="fin-delta ${delta > 0 ? 'pos' : 'neg'}">${delta > 0 ? '+' : ''}${fmtNum(delta)}</span>`;
-              return `<tr>
-                <td style="padding-left:22px;color:var(--text2)">${l.label}</td>
+              const isDedVat = (l.id === 'cus_vat' && vatDeductible);
+              const deltaHTML = isDedVat
+                ? '<span style="font-size:10px;color:var(--co-accent);font-weight:700;font-family:\'JetBrains Mono\',monospace">возмещается</span>'
+                : (delta === 0 ? '<span class="fin-delta zer">0</span>'
+                : `<span class="fin-delta ${delta > 0 ? 'pos' : 'neg'}">${delta > 0 ? '+' : ''}${fmtNum(delta)}</span>`);
+              return `<tr${isDedVat ? ' style="background:var(--co-accent-light)"' : ''}>
+                <td style="padding-left:22px;color:var(--text2)">${l.label}${isDedVat ? ' <span style="font-size:9px;font-weight:700;color:var(--co-accent);background:var(--co-accent-light);border:1px solid var(--co-accent-border);padding:1px 6px;border-radius:4px;margin-left:6px;font-family:\'JetBrains Mono\',monospace">К ВЫЧЕТУ</span>' : ''}</td>
                 <td class="r">
                   <input type="number" id="fin-${l.id}-plan" value="${plan}"
                          min="0" step="0.01" onchange="finRecalcPreview('${sid}')">
@@ -16116,10 +16149,40 @@ function finSaveBudget(shipId) {
   }
 }
 
+/* ── НДС к вычету (ОСНО/УСН) ─────────────────────────────────────
+   Перенесено из старого раздела «Себестоимость» (Приоритет 2).
+   ОСНО → ввозной НДС возмещается, не входит в себестоимость. */
+function finToggleVatDeductible(shipId) {
+  const bgt = finGetOrCreateBudget(shipId);
+  DB_shipment_budget.update(bgt.id, { bg_vat_deductible: !bgt.bg_vat_deductible });
+  const s = DB_shipments.find(String(shipId));
+  if (s) shpRenderFinance(s);
+}
+
+/* ── Конвертер валюты → стоимость товара в ₽ ─────────────────────
+   Заполняет goods_invoice_plan = сумма_в_валюте × курс. */
+function finFillFromCurrency(shipId) {
+  const cur  = document.getElementById(`fin-fc-cur-${shipId}`)?.value || 'USD';
+  const amt  = parseFloat(document.getElementById(`fin-fc-amt-${shipId}`)?.value)  || 0;
+  const rate = parseFloat(document.getElementById(`fin-fc-rate-${shipId}`)?.value) || 0;
+  if (!amt || !rate) { showToast('⚠️ Введите сумму в валюте и курс'); return; }
+  const bgt = finGetOrCreateBudget(shipId);
+  const rub = Math.round(amt * rate);
+  DB_shipment_budget.update(bgt.id, {
+    goods_invoice_plan: rub, bg_currency: cur, bg_fc_amount: amt, bg_rate: rate,
+  });
+  const s = DB_shipments.find(String(shipId));
+  if (s) shpRenderFinance(s);
+  showToast(`✅ Стоимость товара: ${rub.toLocaleString('ru-RU')} ₽`);
+}
+
 /* ── Live recalc totals while editing ───────────────────────────── */
 function finRecalcPreview(shipId) {
+  const bgt = finGetOrCreateBudget(shipId);
+  const vatDeductible = !!bgt.bg_vat_deductible;
   let tp = 0, tf = 0;
   FIN_GROUPS.forEach(g => g.lines.forEach(l => {
+    if (vatDeductible && l.id === 'cus_vat') return;
     tp += parseFloat(document.getElementById(`fin-${l.id}-plan`)?.value) || 0;
     tf += parseFloat(document.getElementById(`fin-${l.id}-fact`)?.value) || 0;
   }));
