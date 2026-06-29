@@ -1832,9 +1832,8 @@ function addEvent(id) {
     note: noteEl ? noteEl.value.trim() : '',
     ...(linkedAmount && linkedLine ? { amount: linkedAmount, budgetLine: linkedLine } : {})
   });
-  if (linkedAmount && linkedLine && s.po) {
-    bgLinkEventToBudget(s.po, linkedLine, linkedAmount);
-  }
+  // Себестоимость ведётся в карточке (вкладка «Финансы», DB_shipment_budget).
+  // Старое авто-связывание факта через событие удалено (писало в проекцию budgets[]).
   shipmentsSyncToDB(s);
   shipmentsSave();
   renderShipments();
@@ -4788,31 +4787,7 @@ function bgNewBudget() {
   if (typeof showSection === 'function') showSection('shipments');
 }
 
-function bgCreateBudget(po, supplier, cargo, prefill) {
-  const lines = {};
-  Object.values(BG_LINES).flat().forEach(l => {
-    lines[l.id] = { plan: prefill?.[l.id] || 0, fact: 0, note: '' };
-  });
-  budgets.push({ po, supplier: supplier||'', cargo: cargo||'', lines, qty: 0, unit: '', expanded: true, created: new Date().toISOString().slice(0,10), company: activeCompany });
-  bgSave();
-  renderBudgets();
-}
-
 // Called from addEvent: records fact amount in the matching budget line
-function bgLinkEventToBudget(po, lineId, amount) {
-  if (!po || !lineId || !amount) return;
-  let b = budgets.find(x => x.po === po);
-  if (!b) {
-    // Auto-create budget skeleton so fact can be recorded
-    const s = shipments.find(x => x.po === po);
-    bgCreateBudget(po, s ? s.supplier||'' : '', s ? s.cargo||'' : '', {});
-    b = budgets.find(x => x.po === po);
-  }
-  if (!b || !b.lines[lineId]) return;
-  b.lines[lineId].fact = (b.lines[lineId].fact || 0) + amount;
-  bgSave();
-}
-
 // Раздел стал read-only сводкой → кнопка «Sync» просто обновляет проекцию из канона.
 function bgSyncFromTracker() {
   bgLoad();
@@ -5069,87 +5044,7 @@ async function downloadCustomsPackage(shipmentId) {
 
 // ════════════════════════════════════════════════════════════════
 
-function bgToggle(po) {
-  const b = budgets.find(x=>x.po===po);
-  if (b) { b.expanded = !b.expanded; renderBudgets(); }
-}
-
 // Toggle НДС к вычету (ОСНО) / в затраты (УСН)
-function bgToggleVatDeductible(po) {
-  const b = budgets.find(x => x.po === po);
-  if (!b) return;
-  b.vatDeductible = !b.vatDeductible;
-  bgSave();
-  renderBudgets();
-}
-
-function bgDelete(po) {
-  if (!confirm('Удалить бюджет «'+po+'»? Данные нельзя восстановить.')) return;
-  budgets = budgets.filter(b=>b.po!==po);
-  bgSave(); renderBudgets();
-}
-
-function bgFillFromCurrency(po) {
-  const b = budgets.find(x => x.po === po);
-  if (!b) return;
-  const safeId = po.replace(/[^a-zA-Z0-9]/g,'_');
-  const curEl   = document.getElementById('bg-cur-' + safeId);
-  const fcEl    = document.getElementById('bg-fc-' + safeId);
-  const rateEl  = document.getElementById('bg-rate-' + safeId);
-  if (!fcEl || !rateEl) return;
-  const fc   = parseFloat(fcEl.value) || 0;
-  const rate = parseFloat(rateEl.value) || 0;
-  if (!fc || !rate) { alert('Введите сумму в валюте и курс'); return; }
-  const rubAmount = Math.round(fc * rate);
-  b.fcAmount = fc;
-  b.rate = rate;
-  b.currency = curEl ? curEl.value : 'USD';
-  b.lines['goods_invoice'].plan = rubAmount;
-  bgSave();
-  renderBudgets();
-}
-
-function bgAutoCalcDuty(po) {
-  const b = budgets.find(x => x.po === po);
-  if (!b) return;
-  const safeId = po.replace(/[^a-zA-Z0-9]/g,'_');
-  const dutyRateEl = document.getElementById('bg-duty-rate-' + safeId);
-  const vatRateEl  = document.getElementById('bg-vat-rate-' + safeId);
-  const dutyRate = parseFloat(dutyRateEl?.value) || 0;
-  const vatRate  = parseFloat(vatRateEl?.value) || 22;
-  if (!dutyRate) { alert('Введите ставку пошлины (%)'); return; }
-  // Base: sum of goods plan
-  const goodsBase = (b.lines['goods_invoice']?.plan||0) + (b.lines['goods_addon']?.plan||0);
-  if (!goodsBase) { alert('Сначала укажите стоимость товара в разделе «Стоимость товара»'); return; }
-  const duty    = Math.round(goodsBase * dutyRate / 100);
-  const vat     = Math.round((goodsBase + duty) * vatRate / 100);
-  b.dutyRate = dutyRate;
-  b.vatRate  = vatRate;
-  b.lines['cus_duty'].plan = duty;
-  b.lines['cus_vat'].plan  = vat;
-  bgSave();
-  renderBudgets();
-}
-
-function bgUpdateLine(po, lineId, field, value) {
-  const b = budgets.find(x=>x.po===po);
-  if (!b || !b.lines[lineId]) return;
-  b.lines[lineId][field] = parseFloat(value)||0;
-  bgSave();
-  bgRefreshCard(po);
-  bgUpdateKPIs();
-  bgUpdateSummary();
-}
-
-function bgUpdateQty(po, field, value) {
-  const b = budgets.find(x=>x.po===po);
-  if (!b) return;
-  if (field==='qty') b.qty = parseFloat(value)||0;
-  else b.unit = value;
-  bgSave();
-  bgRefreshCard(po);
-}
-
 function bgCalc(b) {
   let totalPlan = 0, totalFact = 0;
   let vatPlan = 0, vatFact = 0;
@@ -5189,58 +5084,6 @@ function bgDeltaClass(delta) {
 function bgDeltaSign(delta) {
   if (!delta) return '±0';
   return (delta>0?'+':'')+Math.round(delta).toLocaleString('ru-RU');
-}
-
-function bgRefreshCard(po) {
-  const b = budgets.find(x=>x.po===po);
-  if (!b) return;
-  const c = bgCalc(b);
-
-  // Update just the computed cells without full re-render
-  const card = document.getElementById('bg-card-'+po.replace(/[^a-zA-Z0-9]/g,'_'));
-  if (!card) return renderBudgets(); // fallback
-
-  // Update group subtotals
-  Object.keys(BG_LINES).forEach(g => {
-    const planEl = document.getElementById(`bg-sub-plan-${po}-${g}`);
-    const factEl = document.getElementById(`bg-sub-fact-${po}-${g}`);
-    const deltaEl= document.getElementById(`bg-sub-delta-${po}-${g}`);
-    if (planEl) planEl.textContent  = bgFmt(c.groups[g].plan);
-    if (factEl) factEl.textContent  = bgFmt(c.groups[g].fact);
-    if (deltaEl){
-      const d = c.groups[g].fact - c.groups[g].plan;
-      deltaEl.textContent = bgDeltaSign(d);
-      deltaEl.className = 'bg-cell delta '+bgDeltaClass(d);
-    }
-  });
-
-  // Update grand total
-  const gtPlan  = document.getElementById('bg-gt-plan-'+po.replace(/[^a-zA-Z0-9]/g,'_'));
-  const gtFact  = document.getElementById('bg-gt-fact-'+po.replace(/[^a-zA-Z0-9]/g,'_'));
-  const gtDelta = document.getElementById('bg-gt-delta-'+po.replace(/[^a-zA-Z0-9]/g,'_'));
-  const gtCogs  = document.getElementById('bg-gt-cogs-'+po.replace(/[^a-zA-Z0-9]/g,'_'));
-  if (gtPlan)  gtPlan.textContent  = bgFmt(c.totalPlan) + ' ₽';
-  if (gtFact)  gtFact.textContent  = bgFmt(c.totalFact) + ' ₽';
-  if (gtDelta) { gtDelta.textContent = bgDeltaSign(c.delta) + ' ₽'; }
-  if (gtCogs && b.qty) {
-    gtCogs.textContent = 'Себест.: ' + bgFmt(c.cogs) + ' ₽/' + (b.unit||'ед.');
-  }
-
-  // Progress bar
-  const factPct = c.totalPlan > 0 ? Math.min(c.totalFact/c.totalPlan*100,150) : 0;
-  const barEl = document.getElementById('bg-bar-'+po.replace(/[^a-zA-Z0-9]/g,'_'));
-  if (barEl) {
-    barEl.style.width = Math.min(factPct,100)+'%';
-    barEl.style.background = c.delta > 0.01*c.totalPlan ? 'var(--red)' : c.delta < -0.01*c.totalPlan ? 'var(--green)' : 'var(--teal)';
-  }
-
-  // Header deviation pill
-  const pillEl = document.getElementById('bg-pill-'+po.replace(/[^a-zA-Z0-9]/g,'_'));
-  if (pillEl) {
-    const cls = bgDeltaClass(c.delta);
-    pillEl.className = 'bg-deviation-pill '+cls;
-    pillEl.textContent = cls==='zero' ? 'В бюджете' : cls==='over' ? '▲ +'+Math.round(c.deltaPct).toFixed(1)+'%' : '▼ '+Math.round(c.deltaPct).toFixed(1)+'%';
-  }
 }
 
 function renderBudgets() {
