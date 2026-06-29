@@ -2570,7 +2570,7 @@
     <!-- BUDGET -->
     <div id="section-budget" class="section">
       <div class="section-title">Себестоимость поставки</div>
-      <div class="section-sub">Товар + Логистика + Таможня · Полная стоимость · % накладных расходов</div>
+      <div class="section-sub">Сводка по всем поставкам · план / факт / отклонение · редактирование в карточке поставки → «Финансы»</div>
 
       <!-- KPI strip (summary across all shipments) -->
       <div class="bg-kpi-strip" id="bg-kpi-strip">
@@ -2583,8 +2583,8 @@
 
       <!-- Controls -->
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px">
-        <button class="gen-btn" onclick="bgNewBudget()" style="margin-top:0;padding:9px 18px">+ Новый бюджет</button>
-        <button class="gen-btn secondary" onclick="bgSyncFromTracker()" style="margin-top:0;padding:9px 18px" title="Подтянуть поставки из Трекера">↻ Sync с трекером</button>
+        <button class="gen-btn" onclick="bgNewBudget()" style="margin-top:0;padding:9px 18px">📦 К поставкам</button>
+        <button class="gen-btn secondary" onclick="bgSyncFromTracker()" style="margin-top:0;padding:9px 18px" title="Обновить сводку из карточек поставок">↻ Обновить</button>
         <button class="gen-btn secondary" onclick="exportBudgetExcel()" style="margin-top:0;padding:9px 18px;border-color:rgba(31,122,99,0.5);color:var(--green);background:rgba(31,122,99,0.07)">⬇ Excel</button>
         <div style="flex:1"></div>
         <div style="font-size:11px;color:var(--text3);font-family:'Fira Code',monospace">Все суммы в <b>руб. ₽</b> · для инвалютных статей укажите сумму × курс</div>

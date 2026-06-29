@@ -4699,21 +4699,93 @@ const BG_GROUP_LABELS = {
   other:     { title:'Прочие расходы',     color:'var(--gold)'  },
 };
 
-function bgLoad() {
-  try { const s=localStorage.getItem('ved_budgets'); if(s) budgets=JSON.parse(s); } catch(e) {}
+/* ── Приоритет 2: единый источник правды для себестоимости ─────────
+   Канон — DB_shipment_budget (ключ shipment_id), тот же стор, что
+   вкладка «Финансы» поставки. Раздел «Себестоимость» стал read-only
+   сводкой по всем поставкам: budgets[] ПРОЕЦИРУЕТСЯ из DB_shipment_budget,
+   старый ved_budgets один раз мигрируется. */
+
+// Старые бюджеты ved_budgets (ключ po) → DB_shipment_budget (ключ shipment_id).
+// Идемпотентно (флаг ved_budgets_unified_v1). ved_budgets сохраняем как бэкап.
+function _bgMigrateToFin() {
+  if (localStorage.getItem('ved_budgets_unified_v1')) return;
+  let old = [];
+  try { old = JSON.parse(localStorage.getItem('ved_budgets') || '[]'); } catch(e) {}
+  if (old.length) {
+    // карта po → поставка
+    const ships = DB_shipments.all();
+    const byPo = {};
+    ships.forEach(s => { const po = s.po || s.shipment_number; if (po) byPo[po] = s; });
+    old.forEach(b => {
+      const s = byPo[b.po];
+      if (!s) return;                              // нет поставки — пропускаем
+      const bgt = (typeof finGetOrCreateBudget === 'function')
+        ? finGetOrCreateBudget(s.id)
+        : DB_shipment_budget.where(x => x.shipment_id === String(s.id))[0];
+      if (!bgt) return;
+      const patch = {};
+      Object.keys(b.lines || {}).forEach(id => {
+        const v = b.lines[id] || {};
+        if (v.plan) patch[id + '_plan'] = v.plan;
+        if (v.fact) patch[id + '_fact'] = v.fact;
+      });
+      // мета-поля старого раздела (валюта/НДС-к-вычету/ставки/кол-во)
+      if (b.vatDeductible != null) patch.bg_vat_deductible = !!b.vatDeductible;
+      if (b.dutyRate)  patch.bg_duty_rate = b.dutyRate;
+      if (b.vatRate)   patch.bg_vat_rate  = b.vatRate;
+      if (b.currency)  patch.bg_currency  = b.currency;
+      if (b.rate)      patch.bg_rate      = b.rate;
+      if (b.fcAmount)  patch.bg_fc_amount = b.fcAmount;
+      if (b.qty)       patch.bg_qty       = b.qty;
+      DB_shipment_budget.update(bgt.id, patch);
+    });
+  }
+  localStorage.setItem('ved_budgets_unified_v1', '1');
 }
 
-function bgSave() {
-  try { localStorage.setItem('ved_budgets', JSON.stringify(budgets)); } catch(e) {}
+// Проекция DB_shipment_budget → budgets[] (схема старого раздела) для рендера/KPI/экспорта.
+function _bgProjectFromFin() {
+  return DB_shipment_budget.all().map(row => {
+    const s = DB_shipments.find(String(row.shipment_id));
+    const lines = {};
+    FIN_GROUPS.forEach(g => g.lines.forEach(l => {
+      lines[l.id] = {
+        plan: parseFloat(row[l.id + '_plan']) || 0,
+        fact: parseFloat(row[l.id + '_fact']) || 0,
+        note: '',
+      };
+    }));
+    return {
+      _finId:  row.id,
+      _shipId: String(row.shipment_id),
+      po:       s ? (s.po || s.shipment_number || row.shipment_id) : row.shipment_id,
+      supplier: s ? ((typeof shpSupName === 'function') ? shpSupName(s) : (s.supplier || '')) : '',
+      cargo:    s?.cargo || '',
+      company:  s?.company || row.company || 'ENDV',
+      lines,
+      currency: row.bg_currency || 'USD',
+      rate:     row.bg_rate || '',
+      fcAmount: row.bg_fc_amount || '',
+      vatDeductible: !!row.bg_vat_deductible,
+      dutyRate: row.bg_duty_rate || '',
+      vatRate:  row.bg_vat_rate || 22,
+      qty:      row.bg_qty || 0,
+    };
+  });
 }
+
+function bgLoad() {
+  _bgMigrateToFin();
+  budgets = _bgProjectFromFin();
+}
+
+// Раздел стал read-only проекцией — отдельного сохранения нет (данные в DB_shipment_budget).
+function bgSave() { /* no-op: канон DB_shipment_budget, редактирование в карточке поставки */ }
 
 function bgNewBudget() {
-  const po = prompt('Введите номер поставки / PO:');
-  if (!po) return;
-  if (budgets.find(b=>b.po===po)) { alert('Бюджет для '+po+' уже существует'); return; }
-  const supplier = prompt('Поставщик (необязательно):') || '';
-  const cargo    = prompt('Описание груза (необязательно):') || '';
-  bgCreateBudget(po, supplier, cargo);
+  // Себестоимость теперь ведётся в карточке поставки (вкладка «Финансы»).
+  showToast('ℹ️ Себестоимость заполняется в карточке поставки → вкладка «Финансы»');
+  if (typeof showSection === 'function') showSection('shipments');
 }
 
 function bgCreateBudget(po, supplier, cargo, prefill) {
@@ -4741,43 +4813,11 @@ function bgLinkEventToBudget(po, lineId, amount) {
   bgSave();
 }
 
+// Раздел стал read-only сводкой → кнопка «Sync» просто обновляет проекцию из канона.
 function bgSyncFromTracker() {
-  if (!shipments || shipments.length === 0) { alert('Нет поставок в Трекере. Добавьте поставки в раздел 05.'); return; }
-  let added = 0, synced = 0;
-  shipments.forEach(s => {
-    if (!s.po) return;
-    if (!budgets.find(b => b.po === s.po)) {
-      // Parse value from tracker (could be "149,112 INR" or raw number)
-      const rawVal = s.value || '';
-      const numVal = parseFloat(rawVal.replace(/[^0-9.]/g,'')) || 0;
-      // Rough prefill: goods = invoice value (as-is, user adjusts currency)
-      bgCreateBudget(s.po, s.supplier||'', s.cargo||'', { goods_invoice: numVal });
-      added++;
-    }
-    // Re-calculate fact values from events that have linked amounts
-    const b = budgets.find(x => x.po === s.po);
-    if (b && s.events && s.events.length) {
-      const eventFacts = {};
-      s.events.forEach(ev => {
-        if (ev.amount && ev.budgetLine && b.lines[ev.budgetLine]) {
-          eventFacts[ev.budgetLine] = (eventFacts[ev.budgetLine] || 0) + ev.amount;
-        }
-      });
-      Object.keys(eventFacts).forEach(lineId => {
-        if (b.lines[lineId] && b.lines[lineId].fact !== eventFacts[lineId]) {
-          b.lines[lineId].fact = eventFacts[lineId];
-          synced++;
-        }
-      });
-    }
-  });
-  bgSave();
+  bgLoad();
   renderBudgets();
-  let msg = '';
-  if (added > 0) msg += 'Импортировано ' + added + ' поставок из Трекера. ';
-  if (synced > 0) msg += 'Обновлено ' + synced + ' строк факта из событий. ';
-  if (!msg) msg = 'Все поставки актуальны — изменений нет.';
-  alert(msg.trim());
+  showToast('↻ Сводка обновлена из карточек поставок');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -5204,217 +5244,93 @@ function bgRefreshCard(po) {
 }
 
 function renderBudgets() {
-  const list = document.getElementById('bg-list');
+  const list  = document.getElementById('bg-list');
   const empty = document.getElementById('bg-empty');
   if (!list) return;
 
-  const coBudgets = budgets.filter(b => (b.company || 'ENDV') === activeCompany);
+  // budgets[] — проекция из DB_shipment_budget (единый источник правды).
+  const coBudgets = budgets
+    .filter(b => (b.company || 'ENDV') === activeCompany)
+    .map(b => ({ b, c: bgCalc(b) }))
+    // показываем только поставки с какими-либо суммами
+    .filter(x => x.c.totalPlan > 0 || x.c.totalFact > 0)
+    .sort((a, z) => z.c.totalFact - a.c.totalFact || z.c.totalPlan - a.c.totalPlan);
 
+  const summaryWrap = document.getElementById('bg-summary-wrap');
   if (coBudgets.length === 0) {
     list.innerHTML = '';
     if (empty) empty.style.display = '';
-    document.getElementById('bg-summary-wrap').style.display = 'none';
+    if (summaryWrap) summaryWrap.style.display = 'none';
     bgUpdateKPIs();
     return;
   }
   if (empty) empty.style.display = 'none';
-  document.getElementById('bg-summary-wrap').style.display = '';
+  if (summaryWrap) summaryWrap.style.display = '';
 
-  list.innerHTML = coBudgets.map(b => {
-    const c = bgCalc(b);
-    const safeId = b.po.replace(/[^a-zA-Z0-9]/g,'_');
-    const cls = bgDeltaClass(c.delta);
-    const factPct = c.totalPlan > 0 ? Math.min(c.totalFact/c.totalPlan*100, 150) : 0;
-    const barColor = c.delta > 0.01*c.totalPlan ? 'var(--red)' : c.delta < -0.01*c.totalPlan ? 'var(--green)' : 'var(--teal)';
-    const totalRef = c.totalFact || c.totalPlan;
+  const BG_COLORS = { goods:'#1F7A63', logistics:'#2563EB', customs:'#C0392B', other:'#B8860B' };
+  const BG_LABELS = { goods:'Товар', logistics:'Логистика', customs:'Таможня', other:'Прочее' };
 
-    // ── Breakdown stacked bar ─────────────────────────────────────────
-    const BG_COLORS = { goods:'#1F7A63', logistics:'#2563EB', customs:'#C0392B', other:'#B8860B' };
-    const BG_LABELS = { goods:'Товар', logistics:'Логистика', customs:'Таможня', other:'Прочее' };
-    const breakdownBar = totalRef > 0 ? (() => {
+  list.innerHTML = `
+    <div style="font-size:11px;color:var(--text3);margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="background:var(--co-accent-light);color:var(--co-accent);font-weight:700;padding:2px 10px;border-radius:20px;font-size:10px">СВОДКА</span>
+      Себестоимость считается в карточке поставки → вкладка «Финансы». Здесь — обзор по всем поставкам.
+    </div>` +
+    coBudgets.map(({ b, c }) => {
+      const totalRef = c.totalFact || c.totalPlan;
+      const cls      = bgDeltaClass(c.delta);
+      const deltaColor = c.delta > 0.01 * c.totalPlan ? 'var(--red)'
+        : c.delta < -0.01 * c.totalPlan ? 'var(--green)' : 'var(--text3)';
+
       const segments = Object.keys(BG_LINES).map(g => {
         const amt = c.groups[g].fact || c.groups[g].plan;
-        const pct = amt / totalRef * 100;
-        return { g, amt, pct, color: BG_COLORS[g], label: BG_LABELS[g] };
+        return { g, amt, pct: totalRef > 0 ? amt / totalRef * 100 : 0,
+                 color: BG_COLORS[g], label: BG_LABELS[g] };
       }).filter(s => s.pct > 0.3);
-      return `<div style="margin-bottom:20px">
-        <div style="display:flex;align-items:stretch;height:32px;border-radius:8px;overflow:hidden;margin-bottom:8px">
-          ${segments.map(s => `<div style="width:${s.pct}%;background:${s.color};display:flex;align-items:center;justify-content:center;font-size:10px;color:rgba(255,255,255,0.95);font-family:'Fira Code',monospace;font-weight:700;white-space:nowrap;overflow:hidden;transition:width 0.4s" title="${s.label}: ${bgFmt(s.amt)} ₽ · ${s.pct.toFixed(1)}%">${s.pct>=9?s.pct.toFixed(0)+'%':''}</div>`).join('')}
+
+      const bar = totalRef > 0 ? `
+        <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;margin:10px 0 8px;background:var(--border)">
+          ${segments.map(s => `<div style="width:${s.pct}%;background:${s.color}" title="${s.label}: ${bgFmt(s.amt)} ₽"></div>`).join('')}
         </div>
-        <div style="display:flex;gap:14px;flex-wrap:wrap">
-          ${segments.map(s => `<div style="display:flex;align-items:center;gap:5px;font-size:11px">
-            <div style="width:10px;height:10px;border-radius:2px;background:${s.color}"></div>
-            <span style="color:var(--text3);font-family:'Fira Code',monospace">${s.label}</span>
-            <span style="font-weight:700;font-family:'Fira Code',monospace;color:var(--text)">${s.pct.toFixed(1)}%</span>
-            <span style="color:var(--text3);font-size:10px">${bgFmt(s.amt)} ₽</span>
-          </div>`).join('')}
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          ${segments.map(s => `<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text3)">
+            <span style="width:8px;height:8px;border-radius:2px;background:${s.color}"></span>${s.label}
+            <b style="color:var(--text);font-family:'Fira Code',monospace">${s.pct.toFixed(0)}%</b></span>`).join('')}
+        </div>` : '';
+
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:12px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="min-width:0">
+            <div style="font-weight:700;font-size:14px">${b.po}</div>
+            <div style="font-size:11px;color:var(--text3)">${b.supplier || '—'}${b.cargo ? ' · ' + b.cargo : ''}</div>
+          </div>
+          <button onclick="bgOpenInShipment('${b._shipId}')" style="padding:6px 14px;background:var(--co-accent-light);color:var(--co-accent);border:1px solid var(--co-accent-border);border-radius:7px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Открыть в карточке →</button>
+        </div>
+        ${bar}
+        <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border2)">
+          <div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">План</div>
+            <div style="font-family:'Fira Code',monospace;font-weight:700;font-size:14px;color:var(--co-accent)">${bgFmt(c.totalPlan)} ₽</div></div>
+          <div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Факт</div>
+            <div style="font-family:'Fira Code',monospace;font-weight:700;font-size:14px">${bgFmt(c.totalFact)} ₽</div></div>
+          <div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Отклонение</div>
+            <div style="font-family:'Fira Code',monospace;font-weight:700;font-size:14px;color:${deltaColor}">${c.delta ? bgDeltaSign(c.delta) + ' ₽' : '±0'}</div></div>
+          ${c.cogs ? `<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Себест./ед.</div>
+            <div style="font-family:'Fira Code',monospace;font-weight:700;font-size:14px;color:var(--gold)">${bgFmt(c.cogs)} ₽</div></div>` : ''}
         </div>
       </div>`;
-    })() : '';
-
-    // ── Build rows per group ──────────────────────────────────────────
-    const groupsHtml = Object.keys(BG_LINES).map(g => {
-      const grp = BG_GROUP_LABELS[g];
-      const gAmt = c.groups[g].fact || c.groups[g].plan;
-      const gPct = totalRef > 0 ? (gAmt/totalRef*100).toFixed(1) : null;
-
-      // Extra helper widget per group
-      let helperHtml = '';
-      if (g === 'goods') {
-        const cur = b.currency || 'USD'; const rate = b.rate || '';
-        helperHtml = `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
-          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">ВАЛЮТА</div>
-            <select id="bg-cur-${safeId}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px">
-              ${['USD','EUR','CNY','INR','GBP'].map(c2=>`<option${cur===c2?' selected':''}>${c2}</option>`).join('')}
-            </select></div>
-          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">СУММА В ВАЛЮТЕ</div>
-            <input type="number" id="bg-fc-${safeId}" value="${b.fcAmount||''}" placeholder="0.00" style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
-          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">КУРС ₽</div>
-            <input type="number" id="bg-rate-${safeId}" value="${rate}" placeholder="90.00" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
-          <button onclick="bgFillFromCurrency('${b.po}')" style="padding:6px 14px;background:var(--co-accent);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">→ Заполнить ₽</button>
-          ${b.fcAmount&&b.rate ? `<div style="font-family:'Fira Code',monospace;font-size:11px;color:var(--co-accent);padding-bottom:2px">= ${bgFmt(b.fcAmount*b.rate)} ₽</div>` : ''}
-        </div>`;
-      }
-      if (g === 'customs') {
-        const goodsVal = (b.lines['goods_invoice']?.plan||0) + (b.lines['goods_addon']?.plan||0);
-        const vatToggleLabel = b.vatDeductible
-          ? `<span style="color:var(--co-accent);font-weight:700">✅ ОСНО — НДС к вычету</span>`
-          : `<span style="color:var(--text3)">☐ УСН / спецрежим — НДС в затраты</span>`;
-        helperHtml = `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
-          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">СТАВКА ПОШЛИНЫ %</div>
-            <input type="number" id="bg-duty-rate-${safeId}" value="${b.dutyRate||''}" placeholder="10" style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
-          <div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:'Fira Code',monospace">СТАВКА НДС %</div>
-            <input type="number" id="bg-vat-rate-${safeId}" value="${b.vatRate||22}" placeholder="22" style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px"></div>
-          <button onclick="bgAutoCalcDuty('${b.po}')" style="padding:6px 14px;background:var(--rust);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">⚡ Рассчитать пошлину и НДС</button>
-          ${goodsVal ? `<div style="font-family:'Fira Code',monospace;font-size:10px;color:var(--text3);padding-bottom:2px">База: ${bgFmt(goodsVal)} ₽</div>` : ''}
-          <div style="width:100%;margin-top:6px;padding-top:8px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <button onclick="bgToggleVatDeductible('${b.po}')" style="padding:5px 12px;border:1.5px solid ${b.vatDeductible?'var(--co-accent)':'var(--border)'};border-radius:6px;background:${b.vatDeductible?'rgba(31,122,99,0.08)':'transparent'};cursor:pointer;font-size:11px;font-family:'Fira Code',monospace;transition:all 0.15s">
-              ${vatToggleLabel}
-            </button>
-            <span style="font-size:10px;color:var(--text3)">${b.vatDeductible ? 'НДС возмещается из бюджета — не включается в себестоимость' : 'НДС входит в себестоимость товара'}</span>
-          </div>
-        </div>`;
-      }
-
-      const linesHtml = BG_LINES[g].map(l => {
-        const v = b.lines[l.id] || {plan:0,fact:0};
-        const d = (v.fact||0) - (v.plan||0);
-        // Special rendering for НДС row when it's deductible (ОСНО)
-        if (l.id === 'cus_vat' && b.vatDeductible) {
-          return `<div class="bg-row" style="background:rgba(31,122,99,0.04)">
-            <div class="bg-cell label" style="opacity:0.8">${l.label}
-              <span style="font-size:9px;font-weight:700;color:var(--co-accent);background:rgba(31,122,99,0.15);padding:2px 6px;border-radius:4px;margin-left:6px;font-family:'Fira Code',monospace;letter-spacing:0.5px">К ВЫЧЕТУ</span>
-            </div>
-            <div class="bg-cell"><input type="number" value="${v.plan||''}" placeholder="0" style="opacity:0.65"
-              onchange="bgUpdateLine('${b.po}','${l.id}','plan',this.value)"></div>
-            <div class="bg-cell"><input type="number" value="${v.fact||''}" placeholder="0" style="opacity:0.65"
-              onchange="bgUpdateLine('${b.po}','${l.id}','fact',this.value)"></div>
-            <div class="bg-cell" style="font-size:10px;color:var(--co-accent);font-weight:700;text-align:right;font-family:'Fira Code',monospace">возмещается</div>
-          </div>`;
-        }
-        return `<div class="bg-row">
-          <div class="bg-cell label">${l.label}</div>
-          <div class="bg-cell"><input type="number" value="${v.plan||''}" placeholder="0"
-            onchange="bgUpdateLine('${b.po}','${l.id}','plan',this.value)"></div>
-          <div class="bg-cell"><input type="number" value="${v.fact||''}" placeholder="0"
-            onchange="bgUpdateLine('${b.po}','${l.id}','fact',this.value)"></div>
-          <div class="bg-cell delta ${bgDeltaClass(d)}">${v.plan||v.fact ? bgDeltaSign(d) : '—'}</div>
-        </div>`;
-      }).join('');
-
-      // For customs group: show deductible VAT note after subtotal
-      const vatNote = (g === 'customs' && b.vatDeductible && (c.vatPlan || c.vatFact))
-        ? `<div style="font-size:10px;color:var(--co-accent);padding:6px 8px 2px;font-family:'Fira Code',monospace;display:flex;gap:6px;align-items:center">
-            <span>↑ НДС к вычету:</span>
-            ${c.vatPlan ? `<b>${bgFmt(c.vatPlan)} ₽ план</b>` : ''}
-            ${c.vatFact ? `<b>${bgFmt(c.vatFact)} ₽ факт</b>` : ''}
-            <span style="color:var(--text3)">— возмещается из бюджета, в себестоимость не входит</span>
-           </div>`
-        : '';
-
-      return `<div class="bg-section-title" style="color:${BG_COLORS[g]}">${grp.title}${gPct ? `<span style="font-size:10px;font-weight:400;margin-left:8px;opacity:0.7">${gPct}%</span>` : ''}</div>
-        ${helperHtml}
-        <div class="bg-row header">
-          <div class="bg-cell">Статья расходов</div>
-          <div class="bg-cell right">План, ₽</div>
-          <div class="bg-cell right">Факт, ₽</div>
-          <div class="bg-cell right">Откл., ₽</div>
-        </div>
-        ${linesHtml}
-        <div class="bg-row subtotal">
-          <div class="bg-cell label" style="font-weight:600">Итого ${grp.title.toLowerCase()}${g==='customs'&&b.vatDeductible?' <span style="font-size:9px;font-weight:400;color:var(--text3)">(без НДС)</span>':''}</div>
-          <div class="bg-cell right" id="bg-sub-plan-${b.po}-${g}">${bgFmt(c.groups[g].plan)}</div>
-          <div class="bg-cell right" id="bg-sub-fact-${b.po}-${g}">${bgFmt(c.groups[g].fact)}</div>
-          <div class="bg-cell delta ${bgDeltaClass(c.groups[g].fact-c.groups[g].plan)}"
-               id="bg-sub-delta-${b.po}-${g}">${bgDeltaSign(c.groups[g].fact-c.groups[g].plan)}</div>
-        </div>
-        ${vatNote}`;
     }).join('');
 
-    return `<div class="bg-card ${b.expanded?'expanded':''}" id="bg-card-${safeId}">
-      <div class="bg-card-head" onclick="bgToggle('${b.po}')">
-        <div class="bg-card-po">${b.po}</div>
-        <div class="bg-card-supplier">${b.supplier}${b.cargo?' · <span style="color:var(--text3)">'+b.cargo+'</span>':''}</div>
-        <div style="display:flex;align-items:center;gap:12px">
-          ${c.totalPlan ? `<div style="text-align:right;font-family:'Fira Code',monospace;font-size:11px;color:var(--text3)">план: ${bgFmt(c.totalPlan)} ₽</div>` : ''}
-          ${c.totalFact ? `<div style="text-align:right;font-family:'Fira Code',monospace;font-size:13px;color:var(--navy);font-weight:700">факт: ${bgFmt(c.totalFact)} ₽</div>` : ''}
-          <div class="bg-deviation-pill ${cls}" id="bg-pill-${safeId}">
-            ${cls==='zero'?'Нет данных':cls==='over'?'▲ +'+Math.abs(c.deltaPct).toFixed(1)+'%':'▼ '+Math.abs(c.deltaPct).toFixed(1)+'%'}
-          </div>
-        </div>
-        <div style="color:var(--text3);font-size:12px;margin-left:8px">${b.expanded?'▲':'▼'}</div>
-      </div>
-
-      <div class="bg-card-body">
-        <!-- Qty + delete row -->
-        <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap">
-          <div class="field" style="margin:0;min-width:160px">
-            <label>Кол-во товара (для себест. на ед.)</label>
-            <input type="number" value="${b.qty||''}" placeholder="0" style="padding:8px 12px"
-              onchange="bgUpdateQty('${b.po}','qty',this.value)">
-          </div>
-          <div class="field" style="margin:0;min-width:100px">
-            <label>Единица</label>
-            <input value="${b.unit||''}" placeholder="Mtrs / Pcs" style="padding:8px 12px"
-              onchange="bgUpdateQty('${b.po}','unit',this.value)">
-          </div>
-          <div style="padding-bottom:1px;flex:1"></div>
-          <button class="admin-action-btn danger" onclick="bgDelete('${b.po}');event.stopPropagation()">× Удалить бюджет</button>
-        </div>
-
-        <!-- Breakdown stacked bar -->
-        <div id="bg-breakdown-${safeId}">${breakdownBar}</div>
-
-        <!-- Progress bar (plan vs fact) -->
-        ${c.totalPlan > 0 ? `<div style="margin-bottom:18px">
-          <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Fira Code',monospace;color:var(--text3);margin-bottom:4px">
-            <span>Исполнение плана</span>
-            <span>${factPct.toFixed(1)}%</span>
-          </div>
-          <div class="bg-bar-track">
-            <div class="bg-bar-plan" style="width:100%"></div>
-            <div class="bg-bar-fact" id="bg-bar-${safeId}" style="width:${Math.min(factPct,100)}%;background:${barColor}"></div>
-          </div>
-        </div>` : ''}
-
-        ${groupsHtml}
-
-        <!-- Grand total -->
-        <div class="bg-row grandtotal" style="margin-top:8px">
-          <div class="bg-cell" style="font-size:14px;font-weight:700;color:white">ИТОГО СЕБЕСТОИМОСТЬ НА СКЛАДЕ</div>
-          <div class="bg-cell grand-val" id="bg-gt-plan-${safeId}">${bgFmt(c.totalPlan)} ₽</div>
-          <div class="bg-cell grand-val" id="bg-gt-fact-${safeId}">${bgFmt(c.totalFact)} ₽</div>
-          <div class="bg-cell grand-val" id="bg-gt-delta-${safeId}">${bgDeltaSign(c.delta)} ₽</div>
-        </div>
-        ${b.qty ? `<div style="text-align:right;font-family:'Fira Code',monospace;font-size:11px;color:var(--text3);margin-top:8px" id="bg-gt-cogs-${safeId}">
-          Себест. факт: ${bgFmt(c.cogs)} ₽/${b.unit||'ед.'} &nbsp;·&nbsp; план: ${bgFmt(c.cogsPlan)} ₽/${b.unit||'ед.'}
-        </div>` : ''}
-      </div>
-    </div>`;
-  }).join('');
-
   bgUpdateKPIs();
-  bgUpdateSummary();
+  if (typeof bgUpdateSummary === 'function') bgUpdateSummary();
+}
+
+// Открыть поставку и её вкладку «Финансы» из сводки себестоимости.
+function bgOpenInShipment(shipId) {
+  if (!shipId) return;
+  if (typeof showSection === 'function') showSection('shipments');
+  setTimeout(() => {
+    if (typeof shpOpenDetail === 'function') shpOpenDetail(String(shipId));
+    setTimeout(() => { if (typeof shpSetTab === 'function') shpSetTab('finance'); }, 120);
+  }, 120);
 }
 
 function bgUpdateKPIs() {
