@@ -19578,6 +19578,7 @@ function pfiConfirm() {
     currency,
   });
   const supId = supRes.supplier ? String(supRes.supplier.id) : '';
+  const _pfiNewProducts = [];   // товары, созданные этой проформой (для синка в бэкенд)
 
   // 2) Создать поставку
   const ship = DB_shipments.insert({
@@ -19615,6 +19616,7 @@ function pfiConfirm() {
 
     const pr = findOrCreateProduct({ sku, name: desc, hs_code: hs, unit, price, currency }, supId);
     productAddPricePoint(pr.product.id, { supplierId: supId, price, currency, source: num });
+    if (pr.isNew) _pfiNewProducts.push(pr.product);
 
     const line = qty * price; total += line;
     DB_shipment_items.insert({
@@ -19654,5 +19656,109 @@ function pfiConfirm() {
     ? '🆕 Новый поставщик — оформите договор + спецификацию'
     : '✅ Поставщик в базе — оформите договор';
   if (typeof showToast === 'function') showToast('✅ Поставка создана. ' + hint);
+
+  // 5) ТЗ E: синхронизация в бэкенд (поставщик→товары→поставка→позиции с uuid).
+  //    Локально уже всё создано (офлайн-устойчивость); ниже — командная видимость.
+  _pfiSyncToBackend({ shipLocalId: ship.id, supRes, oldSupId: supId, newProducts: _pfiNewProducts, currency });
+}
+
+/* ── ТЗ E: проформа → бэкенд (uuid-связи) ──────────────────────────
+   Локально всё уже создано. Здесь зеркалим в общий бэкенд по цепочке:
+   поставщик (→uuid) → товары (→uuid, ремап ссылок) → поставка (_api_id)
+   → позиции (nested items). Любая ошибка/офлайн → молча остаёмся на
+   localStorage (сработает предохранитель apiFetch). */
+async function _pfiSyncToBackend({ shipLocalId, supRes, oldSupId, newProducts, currency }) {
+  if (typeof apiFetch !== 'function') return;
+  try {
+    // 1) Поставщик → uuid (если новый). Если уже синхронизирован — id уже uuid.
+    let supUuid = supRes && supRes.supplier ? String(supRes.supplier.id) : '';
+    if (supRes && supRes.isNew && supRes.supplier && typeof _spLocalToApi === 'function') {
+      const r = await apiFetch('/api/v1/suppliers', {
+        method: 'POST', body: JSON.stringify(_spLocalToApi({ ...supRes.supplier, history: [] })),
+      });
+      if (r && r.ok) {
+        const created = await r.json();
+        supUuid = String(created.id);
+        const idx = (typeof suppliers !== 'undefined')
+          ? suppliers.findIndex(x => String(x.id) === String(oldSupId)) : -1;
+        if (idx >= 0) { suppliers[idx].id = supUuid; if (typeof spSave === 'function') spSave(); }
+      }
+    }
+
+    // 2) Товары → uuid + ремап ссылок поставщика в карточке товара
+    const prodIdMap = {};   // localProductId → uuid
+    for (const p of (newProducts || [])) {
+      const payload = { ...p };
+      // подставляем uuid поставщика в ссылки товара перед отправкой
+      if (oldSupId && supUuid && supUuid !== oldSupId) {
+        if (String(payload.default_supplier_id) === String(oldSupId)) payload.default_supplier_id = supUuid;
+        payload.supplier_skus = (payload.supplier_skus || []).map(x =>
+          String(x.supplier_id) === String(oldSupId) ? { ...x, supplier_id: supUuid } : x);
+      }
+      const r = await apiFetch('/api/v1/products', { method: 'POST', body: JSON.stringify(payload) });
+      if (r && r.ok) {
+        const created = await r.json();
+        if (created && created.id) prodIdMap[String(p.id)] = String(created.id);
+      }
+    }
+    // применяем ремап id товаров локально (DB_products + позиции поставки)
+    if (Object.keys(prodIdMap).length && typeof DB_products !== 'undefined') {
+      const prods = DB_products.all();
+      let changed = false;
+      prods.forEach(pp => {
+        if (prodIdMap[String(pp.id)]) { pp.id = prodIdMap[String(pp.id)]; changed = true; }
+        if (oldSupId && supUuid && String(pp.default_supplier_id) === String(oldSupId)) pp.default_supplier_id = supUuid;
+      });
+      if (changed) DB_products.save(prods);
+      const its = DB_shipment_items.all();
+      let itChanged = false;
+      its.forEach(it => { if (prodIdMap[String(it.product_id)]) { it.product_id = prodIdMap[String(it.product_id)]; itChanged = true; } });
+      if (itChanged) DB_shipment_items.save(its);
+    }
+
+    // 3) Поставка → бэкенд (supplier uuid), сохраняем _api_id
+    const ship = DB_shipments.find(shipLocalId);
+    if (!ship) return;
+    if (supUuid) DB_shipments.update(shipLocalId, { supplier_id: supUuid });
+    if (typeof shipsApiCreate !== 'function') return;
+    const apiId = await shipsApiCreate({
+      shipment_number: ship.shipment_number, company: ship.company, status: ship.status,
+      current_stage: ship.current_stage, supplier_id: supUuid || ship.supplier_id || null,
+      forwarder_id: '', broker_id: '', contract_id: ship.contract_id || '',
+      incoterms: ship.incoterms, total_value: ship.total_value, currency: ship.currency,
+      mode: ship.mode, from: ship.from, to: ship.to, notes: ship.notes, dates: ship.dates,
+    });
+    if (!apiId) return;   // бэкенд недоступен → остаётся локально (предохранитель)
+    DB_shipments.update(shipLocalId, { _api_id: apiId });
+
+    // 4) Позиции → nested items endpoint
+    const items = DB_shipment_items.where(it => String(it.shipment_id) === String(shipLocalId));
+    for (const it of items) {
+      const body = {
+        product_id:        it.product_id || null,
+        supplier_sku:      it.supplier_sku || '',
+        model:             it.model || '',
+        description:       it.description || it.supplier_sku || '—',
+        hs_code:           it.hs_code || '',
+        country_of_origin: it.country_of_origin || '',
+        quantity:          it.quantity || 0,
+        unit:              it.unit || 'Pcs',
+        unit_price:        it.unit_price || 0,
+        total_price:       it.total_price,
+        currency:          it.currency || currency || 'USD',
+        net_weight:        it.net_weight || null,
+        gross_weight:      it.gross_weight || null,
+        package_type:      it.package_type || null,
+        notes:             it.notes || '',
+      };
+      await apiFetch(`/api/v1/shipments/${apiId}/items`, { method: 'POST', body: JSON.stringify(body) });
+    }
+
+    if (typeof shpLoad === 'function') shpLoad();
+    if (typeof showToast === 'function') showToast('☁️ Поставка синхронизирована с командой');
+  } catch (e) {
+    if (typeof VED_API_CONFIG !== 'undefined' && VED_API_CONFIG.debug) console.warn('[pfiSync] error', e);
+    // офлайн / предохранитель → данные остаются локально, это норма
+  }
 }
 
