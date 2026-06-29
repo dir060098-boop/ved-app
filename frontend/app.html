@@ -1830,7 +1830,7 @@
     <!-- PRE-CALCULATION MODULE -->
     <div id="section-precalc" class="section">
       <div class="section-title">Предварительный расчёт</div>
-      <div class="section-sub">Полная себестоимость поставки в ₽ · EXW / FOB / CFR-CIF · Море / Авиа / Авто / Ж/Д</div>
+      <div class="section-sub">Полная себестоимость в ₽ · EXW/FCA/CPT/CIP/FOB/CFR/CIF · Море/Авиа/Авто/Ж/Д · пошлина+акциз+НДС+сборы</div>
 
       <div style="display:flex;gap:20px;align-items:flex-start">
 
@@ -1864,13 +1864,25 @@
             <!-- Инкотермс + транспорт -->
             <div class="form-grid cols-3" style="margin-bottom:12px">
               <div class="field">
-                <label>Инкотермс</label>
+                <label>Инкотермс <span id="pc-inco-hint" style="font-size:9px;color:var(--text3)"></span></label>
                 <select id="pc-incoterms" onchange="pcUpdateTransportUI();pcCalc()">
-                  <option value="FOB">FOB — Free on Board</option>
-                  <option value="EXW">EXW — Ex Works</option>
-                  <option value="CFR">CFR — Cost &amp; Freight</option>
-                  <option value="CIF">CIF — Cost Insurance Freight</option>
+                  <optgroup label="Любой транспорт (Incoterms 2020)">
+                    <option value="EXW">EXW — Ex Works</option>
+                    <option value="FCA">FCA — Free Carrier</option>
+                    <option value="CPT">CPT — Carriage Paid To</option>
+                    <option value="CIP">CIP — Carriage &amp; Insurance Paid</option>
+                  </optgroup>
+                  <optgroup label="Только море/река">
+                    <option value="FOB">FOB — Free on Board</option>
+                    <option value="CFR">CFR — Cost &amp; Freight</option>
+                    <option value="CIF">CIF — Cost Insurance Freight</option>
+                  </optgroup>
                 </select>
+              </div>
+              <div class="field">
+                <label>Пункт (named place)</label>
+                <input id="pc-named-place" placeholder="напр. Shanghai / завод Ningbo"
+                       oninput="pcCalc()">
               </div>
               <div class="field">
                 <label>Вид транспорта</label>
@@ -2034,6 +2046,16 @@
               <div class="field">
                 <label>Маркировка (Честный Знак), ₽</label>
                 <input id="pc-marking" type="number" min="0" step="1000" value="0"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>Акциз, ₽ <span style="font-size:9px;color:var(--text3)">подакцизные</span></label>
+                <input id="pc-excise" type="number" min="0" step="1000" value="0"
+                       oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
+              </div>
+              <div class="field">
+                <label>Утильсбор, ₽ <span style="font-size:9px;color:var(--text3)">авто/шины/техника</span></label>
+                <input id="pc-util" type="number" min="0" step="1000" value="0"
                        oninput="pcCalc()" style="font-family:'JetBrains Mono',monospace">
               </div>
             </div>

@@ -7402,7 +7402,10 @@ function pcUpdateTransportUI() {
   const service   = document.getElementById('pc-service')?.value   || 'full';
   const incoterms = document.getElementById('pc-incoterms')?.value || 'FOB';
   const isLCL     = (service === 'lcl');
-  const isCfrCif  = (incoterms === 'CFR' || incoterms === 'CIF');
+  // Группы по влиянию на расчёт: фрахт включён в цену (CFR/CIF/CPT/CIP),
+  // страховка включена (CIF/CIP). isCfrCif = «фрахт уже в цене товара».
+  const isCfrCif  = ['CFR','CIF','CPT','CIP'].includes(incoterms);
+  const insIncluded = ['CIF','CIP'].includes(incoterms);
   const isEXW     = (incoterms === 'EXW');
 
   // Origin options per transport type
@@ -7475,24 +7478,33 @@ function pcUpdateTransportUI() {
   if (frFld)  frFld.style.display  = isCfrCif ? 'none' : '';
   if (curFld) curFld.style.display = isCfrCif ? 'none' : '';
 
-  // CFR/CIF info block
+  // «фрахт в цене» info block (CFR/CIF/CPT/CIP)
   const cfrInfo = document.getElementById('pc-cfr-info');
   if (cfrInfo) cfrInfo.style.display = isCfrCif ? 'block' : 'none';
 
-  // Insurance: hide for CIF; relabel
+  // Insurance: hide когда страховка уже в цене (CIF/CIP); relabel
   const insFld = document.getElementById('pc-insurance-field');
-  if (insFld) insFld.style.display = incoterms === 'CIF' ? 'none' : '';
+  if (insFld) insFld.style.display = insIncluded ? 'none' : '';
   const insLbl = document.getElementById('pc-insurance-label');
   if (insLbl) insLbl.textContent = isEXW ? 'Страховка, % от EXW' : 'Страховка, % от FOB';
 
-  // Inland freight: EXW only
+  // Inland freight: EXW only (FCA — упрощённо как FOB, без поля)
   const ilFld = document.getElementById('pc-inland-field');
   if (ilFld) ilFld.style.display = isEXW ? '' : 'none';
 
+  // Подсказка по применимости инкотермс к контейнерам
+  const incoHint = document.getElementById('pc-inco-hint');
+  if (incoHint) {
+    const seaOnly = ['FOB','CFR','CIF'].includes(incoterms);
+    const isContainer = (transport === 'sea' && !isLCL);
+    incoHint.textContent = (seaOnly && isContainer)
+      ? '⚠ для контейнера корректнее FCA/CPT/CIP' : '';
+    incoHint.style.color = 'var(--gold)';
+  }
+
   // Goods block title
-  const titles = { EXW:'Товары (EXW)', FOB:'Товары (FOB)', CFR:'Товары (CFR)', CIF:'Товары (CIF)' };
   const gt = document.querySelector('#pc-goods-table')?.closest('.card-block')?.querySelector('.block-title');
-  if (gt) gt.textContent = titles[incoterms] || 'Товары (FOB)';
+  if (gt) gt.textContent = 'Товары (' + incoterms + ')';
 }
 
 function pcAddGoodsRow(item) {
@@ -7637,9 +7649,11 @@ function pcCalc() {
   const transport = document.getElementById('pc-transport')?.value || 'sea';
   const service   = document.getElementById('pc-service')?.value   || 'full';
   const isLCL     = (service === 'lcl');
-  const isCfr     = (incoterms === 'CFR');
-  const isCif     = (incoterms === 'CIF');
-  const isCfrCif  = isCfr || isCif;
+  // фрахт в цене: CFR/CIF/CPT/CIP; страховка в цене: CIF/CIP
+  const freightIncluded = ['CFR','CIF','CPT','CIP'].includes(incoterms);
+  const insIncluded     = ['CIF','CIP'].includes(incoterms);
+  const isCfrCif  = freightIncluded;   // совместимость с остальным рендером
+  const isCif     = insIncluded;
   const isEXW     = (incoterms === 'EXW');
 
   // ── 1. Стоимость товаров (RUB) ──
@@ -7690,22 +7704,25 @@ function pcCalc() {
 
   // ── 5. Таможенная стоимость (CIF) ──
   let customsValueRub;
-  if (isCif)       customsValueRub = goodsRub;                                           // CIF цена = ТС
-  else if (isCfr)  customsValueRub = goodsRub + insuranceRub;                            // CFR + страховка
-  else if (isEXW)  customsValueRub = goodsRub + inlandRub + freightRub + insuranceRub;   // EXW→CIF
-  else             customsValueRub = goodsRub + freightRub + insuranceRub;               // FOB→CIF
+  if (insIncluded)           customsValueRub = goodsRub;                                 // CIF/CIP цена = ТС
+  else if (freightIncluded)  customsValueRub = goodsRub + insuranceRub;                  // CFR/CPT + страховка
+  else if (isEXW)            customsValueRub = goodsRub + inlandRub + freightRub + insuranceRub; // EXW→CIF
+  else                       customsValueRub = goodsRub + freightRub + insuranceRub;     // FOB/FCA→CIF
 
   // ── 6. Пошлина ──
   const dutyRub = weightedDutySum;
 
-  // ── 7. Таможенные сборы ──
+  // ── 7. Акциз (подакцизные товары) ──
+  const exciseRub = parseFloat(document.getElementById('pc-excise')?.value) || 0;
+
+  // ── 8. Таможенные сборы (НЕ входят в базу НДС) ──
   const customsFee = pcCustomsFee(customsValueRub);
 
-  // ── 8. НДС ──
-  const vatBase = customsValueRub + dutyRub + customsFee;
+  // ── 9. НДС (база = ТС + пошлина + акциз; сбор за оформление НЕ включается) ──
+  const vatBase = customsValueRub + dutyRub + exciseRub;
   const vatRub  = vatBase * (avgVatPct / 100);
 
-  // ── 9. Прочие расходы ──
+  // ── 10. Прочие расходы ──
   const bankPct    = parseFloat(document.getElementById('pc-bank-pct')?.value) || 0;
   const bankRub    = goodsRub * (bankPct / 100);
   const brokerRub  = parseFloat(document.getElementById('pc-broker')?.value) || 0;
@@ -7713,19 +7730,21 @@ function pcCalc() {
   const certRub    = parseFloat(document.getElementById('pc-cert')?.value) || 0;
   const dgRub      = parseFloat(document.getElementById('pc-dg-cost')?.value) || 0;
   const markingRub = parseFloat(document.getElementById('pc-marking')?.value) || 0;
+  const utilRub    = parseFloat(document.getElementById('pc-util')?.value) || 0;
 
-  // ── 10. ИТОГО ──
+  // ── 11. ИТОГО ──
   const totalRub = goodsRub + inlandRub + freightRub + insuranceRub +
-                   dutyRub + customsFee + vatRub +
-                   bankRub + brokerRub + svhRub + certRub + dgRub + markingRub;
+                   dutyRub + exciseRub + customsFee + vatRub +
+                   bankRub + brokerRub + svhRub + certRub + dgRub + markingRub + utilRub;
 
   const costPerUnit = totalQty > 0 ? totalRub / totalQty : 0;
   _pcLastCalc = {
     total: totalRub, costPerUnit,
     goodsRub, inlandRub, freightRub, insuranceRub, customsValueRub,
-    dutyRub, customsFee, vatRub, avgVatPct,
-    bankRub, brokerRub, svhRub, certRub, dgRub, markingRub,
-    incoterms, transport, bankPct: parseFloat(document.getElementById('pc-bank-pct')?.value)||0,
+    dutyRub, exciseRub, customsFee, vatRub, avgVatPct,
+    bankRub, brokerRub, svhRub, certRub, dgRub, markingRub, utilRub,
+    incoterms, transport, namedPlace: document.getElementById('pc-named-place')?.value || '',
+    bankPct: parseFloat(document.getElementById('pc-bank-pct')?.value)||0,
     insurancePct,
   };
 
@@ -7749,7 +7768,8 @@ function pcCalc() {
                    font-weight:${bold?700:500};color:${accent||'var(--text)'}">${pcFmtRub(val)}</span>
     </div>` : '';
 
-  const goodsLbl = { EXW:'EXW', FOB:'FOB', CFR:'CFR', CIF:'CIF' }[incoterms] || 'FOB';
+  const namedPlace = document.getElementById('pc-named-place')?.value || '';
+  const goodsLbl = incoterms + (namedPlace ? ' ' + namedPlace : '');
 
   resultEl.innerHTML = `
     ${row(`Стоимость товаров (${goodsLbl})`, goodsRub)}
@@ -7761,6 +7781,7 @@ function pcCalc() {
       Таможенная стоимость (CIF): ${pcFmtRub(customsValueRub)}
     </div>
     ${row('Ввозная пошлина', dutyRub)}
+    ${row('Акциз', exciseRub)}
     ${row('Таможенный сбор', customsFee)}
     ${row('НДС '+Math.round(avgVatPct)+'%', vatRub)}
     ${row('Брокер', brokerRub)}
@@ -7769,6 +7790,7 @@ function pcCalc() {
     ${row('Сертификация', certRub)}
     ${row('Доп. расходы (ОГ)', dgRub)}
     ${row('Маркировка', markingRub)}
+    ${row('Утилизационный сбор', utilRub)}
 
     <div style="display:flex;justify-content:space-between;align-items:baseline;
                 padding:10px 0 6px;margin-top:4px;border-top:2px solid var(--text)">
@@ -7803,9 +7825,9 @@ function pcCalc() {
 function pcReset() {
   _pcGoodsRows = [];
   pcAddGoodsRow();
-  ['pc-port','pc-container','pc-freight-rate','pc-carrier',
+  ['pc-port','pc-container','pc-freight-rate','pc-carrier','pc-named-place',
    'pc-inland-freight','pc-cbm','pc-weight-kg','pc-min-charge',
-   'pc-broker','pc-svh','pc-cert','pc-dg-cost','pc-marking'].forEach(id => {
+   'pc-broker','pc-svh','pc-cert','pc-dg-cost','pc-marking','pc-excise','pc-util'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = el.tagName==='SELECT' ? el.options[0]?.value||'' : '';
   });
@@ -7848,6 +7870,9 @@ function pcSave() {
     cert: parseFloat(document.getElementById('pc-cert')?.value)||0,
     dg_cost: parseFloat(document.getElementById('pc-dg-cost')?.value)||0,
     marking: parseFloat(document.getElementById('pc-marking')?.value)||0,
+    excise: parseFloat(document.getElementById('pc-excise')?.value)||0,
+    util: parseFloat(document.getElementById('pc-util')?.value)||0,
+    named_place: document.getElementById('pc-named-place')?.value || '',
     freight_unit: document.getElementById('pc-freight-unit')?.value || 'ft',
     company: activeCompany,
     _total: _pcLastCalc.total,
@@ -7951,6 +7976,9 @@ function pcLoadFromHistory(id) {
   setVal('pc-cert',      r.cert);
   setVal('pc-dg-cost',   r.dg_cost);
   setVal('pc-marking',   r.marking);
+  setVal('pc-excise',    r.excise || '');
+  setVal('pc-util',      r.util || '');
+  setVal('pc-named-place', r.named_place || '');
   pcCalc();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   showToast('✅ Расчёт загружен в форму');
@@ -7987,7 +8015,7 @@ function pcExportDetail(id) {
     ['ПАРАМЕТРЫ',''],
     ['Дата', r.date||''],
     ['Компания', r.company||''],
-    ['Инкотермс', r.incoterms||'FOB'],
+    ['Инкотермс', (r.incoterms||'FOB') + (r.named_place ? ' ' + r.named_place : '')],
     ['Транспорт', transportLbl],
     ['Сервис', serviceLbl],
     ['Порт / Аэропорт / Станция', r.port||''],
@@ -8009,6 +8037,7 @@ function pcExportDetail(id) {
     ...(b.insuranceRub > 0 ? [[`Страховка ${b.insurancePct||0.3}%`, fmt(b.insuranceRub)]] : []),
     ['Таможенная стоимость (CIF)', fmt(b.customsValueRub)],
     ['Ввозная пошлина', fmt(b.dutyRub)],
+    ...(b.exciseRub > 0 ? [['Акциз', fmt(b.exciseRub)]] : []),
     ['Таможенный сбор', fmt(b.customsFee)],
     [`НДС ${Math.round(b.avgVatPct||22)}%`, fmt(b.vatRub)],
     ['Брокер', fmt(b.brokerRub)],
@@ -8017,6 +8046,7 @@ function pcExportDetail(id) {
     ...(b.certRub > 0 ? [['Сертификация', fmt(b.certRub)]] : []),
     ...(b.dgRub > 0 ? [['Доп. расходы (ОГ)', fmt(b.dgRub)]] : []),
     ...(b.markingRub > 0 ? [['Маркировка', fmt(b.markingRub)]] : []),
+    ...(b.utilRub > 0 ? [['Утилизационный сбор', fmt(b.utilRub)]] : []),
     ['',''],
     ['ИТОГО ₽', fmt(r._total||0)],
     ['Себестоимость / ед. ₽', fmt(r._cost_per_unit||0)],
